@@ -27,6 +27,8 @@ using namespace std;
  */
 ostream& operator<<(ostream& os, const tsTensor& tensor);
 
+ostream& operator<<(ostream& os, const tsKernel& kernel);
+
 /**
  * Find all unique indices in the given ts tensors.
  * @param taco_tensors Vecotor of tsTensor
@@ -97,3 +99,6 @@ void ensure_directory_exists(const std::string& path);
  * @return bool true of the kernel file has been successfully created, false otherwise.
  */
 bool generate_kernel(vector<tsTensor>& tensors, vector<string> computations, vector<string> dataFileNames, string file_name);
+
+
+vector<vector<string>> generate_all_formats(int rank);

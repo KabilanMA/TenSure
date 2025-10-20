@@ -12,6 +12,81 @@
 using namespace std;
 using json = nlohmann::json;
 
+enum TensorFormat {
+    tsSparse = 0,
+    tsDense = 1
+};
+
+inline string to_string(TensorFormat tf) {
+    switch(tf) {
+        case TensorFormat::tsDense:  return "Dense";
+        case TensorFormat::tsSparse: return "Sparse";
+    }
+    return "Unknown";
+}
+
+inline vector<string> to_string(const vector<TensorFormat>& tfs) {
+    vector<string> tfs_vector = {};
+    
+    for (auto &tf : tfs)
+    {
+        switch (tf)
+        {
+        case TensorFormat::tsDense:
+            tfs_vector.push_back("Dense");
+            break;
+        case TensorFormat::tsSparse:
+            tfs_vector.push_back("Sparse");
+            break;
+        default:
+            break;
+        }
+    }
+
+    return tfs_vector;
+}
+
+inline TensorFormat parseTensorFormat(const string &s) {
+    if (s == "Dense")  return TensorFormat::tsDense;
+    if (s == "Sparse") return TensorFormat::tsSparse;
+    throw runtime_error("Unknown TensorFormat: " + s);
+}
+
+inline vector<TensorFormat> parseTensorFormat(const vector<string>& tfs_vec)
+{
+    vector<TensorFormat> tfs;
+    for (auto &tf : tfs_vec)
+    {
+        if (tf == "Dense")
+        {
+            tfs.push_back(TensorFormat::tsDense);
+        } else if (tf == "Sparse")
+        {
+            tfs.push_back(TensorFormat::tsSparse);
+        } else {
+            throw runtime_error("Unknown TensorFormat: " + tf);
+        }
+    }
+
+    return tfs;
+}
+
+inline bool is_equal(const vector<TensorFormat>& fmt1, const vector<TensorFormat>& fmt2)
+{
+    if (fmt1.size() != fmt2.size())
+        return false;
+    
+    for (size_t i = 0; i < fmt1.size(); i++)
+    {
+        if (fmt1[i] != fmt2[i])
+            return false;
+    }
+    return true;
+}
+
+enum MutationOperator {
+    SPARSITY = 0,
+};
 
 typedef struct tsTensor
 {
@@ -19,7 +94,7 @@ typedef struct tsTensor
     string str_repr;
     vector<char> idxs;
     vector<int> shape;
-    vector<string> storageFormat;
+    vector<TensorFormat> storageFormat;
 } tsTensor;
 
 typedef struct tsTensorData
@@ -93,7 +168,7 @@ typedef struct tsKernel
             t["shape"] = tensor.shape;
             t["str_repr"] = tensor.str_repr;
             t["idxs"] = tensor.idxs;
-            t["storageFormat"] = tensor.storageFormat;
+            t["storageFormat"] = to_string(tensor.storageFormat);
             
             // Loopup file path using the tensor's name
             auto it = dataFileNames.find(string(1, tensor.name));
@@ -140,7 +215,7 @@ typedef struct tsKernel
             tensor.shape = t["shape"].get<vector<int>>();
             tensor.idxs = t["idxs"].get<vector<char>>();
             tensor.str_repr = t["str_repr"].get<string>();
-            tensor.storageFormat = t["storageFormat"].get<vector<string>>();
+            tensor.storageFormat = parseTensorFormat(t["storageFormat"].get<vector<string>>());
 
             tensors.push_back(tensor);
 
@@ -159,9 +234,3 @@ typedef struct tsKernel
         }
     }
 } tsKernel;
-
-
-enum TensorFormat {
-    tsSparse = 0,
-    tsDense = 1
-};

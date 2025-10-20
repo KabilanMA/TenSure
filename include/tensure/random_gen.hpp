@@ -28,4 +28,4 @@ tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int m
 
 vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix);
 
-void mutate_equivalent_kernel(const string& original_kernel);
+vector<string> mutate_equivalent_kernel(const string& original_kernel, MutationOperator mutation_operator, int max_mutants = -1);

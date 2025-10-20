@@ -38,13 +38,14 @@ int main(int argc, char * argv[])
     auto [tensors, einsum] = generate_random_einsum(2, 3);
     vector<string> datafile_names = generate_random_tensor_data(tensors, "./data", "");
     generate_kernel(tensors, {einsum}, datafile_names, "./data/kernel.json");
-    mutate_equivalent_kernel("./data/kernel.json");
 
-    for (auto &tensor : tensors)
-    {
-        cout << tensor << endl;
-        cout << "===============================" << endl;
-    }
+    mutate_equivalent_kernel("./data/kernel.json", MutationOperator::SPARSITY, 100);
+
+    // for (auto &tensor : tensors)
+    // {
+    //     cout << tensor << endl;
+    //     cout << "===============================" << endl;
+    // }
 
 
     // // Setup

@@ -172,10 +172,10 @@ tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int m
             switch (enum_format)
             {
             case TensorFormat::tsDense:
-                tensor.storageFormat.push_back("Dense");
+                tensor.storageFormat.push_back(TensorFormat::tsDense);
                 break;
             case TensorFormat::tsSparse:
-                tensor.storageFormat.push_back("Sparse");
+                tensor.storageFormat.push_back(TensorFormat::tsSparse);
                 break;
             default:
                 break;
@@ -214,6 +214,102 @@ tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int m
     return {tsTensors, (lhs + " = " + rhs)};
 }
 
-void mutate_equivalent_kernel(const string& original_kernel)
+vector<string> sparsity_mutation(tsKernel &kernel, int max_mutants)
 {
+    vector<tsTensor>& tensors = kernel.tensors;
+    vector<string> mutated_file_names = {};
+
+    // Generate random sparse format mutation
+    random_device rd;
+    mt19937 gen(rd());
+    bernoulli_distribution insert_dist(0.2);
+
+    int selected_mutants = 0;
+    map<string, vector<vector<string>>> tensor_sparsity;
+    while (selected_mutants < max_mutants)
+    {
+        int total_possible_mutants = 0;
+        for (auto &tensor : tensors) {
+            vector<vector<string>> all_formats = generate_all_formats(tensor.shape.size());
+            total_possible_mutants += all_formats.size();
+            shuffle(all_formats.begin(), all_formats.end(), gen);
+
+            // iterate over all possible formats
+            for (auto &format : all_formats)
+            {
+                // randomly decide whether to insert this format or not
+                if (insert_dist(gen))
+                {
+                    string key = string(1,tensor.name);
+                    // check whether we have already inserted a format for this
+                    if (tensor_sparsity.count(key) > 0)
+                    { // we have already inserted one sparse format value for this tensor.
+                      
+                        // check this sparse format already exists
+                        bool exists = find(tensor_sparsity[key].begin(), tensor_sparsity[key].end(), format) != tensor_sparsity[key].end();
+                        if (!exists)
+                        {
+                            // insert the new mutant
+                            tensor_sparsity[key].push_back(format);
+
+                            selected_mutants++;
+                        }  
+                    } else { // we are inserting the first sparse format for this tensor
+                        // directly insert the format
+                        tensor_sparsity.insert({key, {format}});
+                        selected_mutants++;
+                    }
+                }
+            }
+            // cout << tensor << endl;
+        }
+        if (total_possible_mutants < max_mutants)
+        {
+            max_mutants = total_possible_mutants;
+            bernoulli_distribution insert_dist(1);
+        }
+    }
+    // Mutation generation completed.
+
+    // Create the mutations into JSON kernel files.
+    int count = 0;
+    for (auto &tensor : tensors)
+    {
+        vector<vector<string>> formats = tensor_sparsity[string(1, tensor.name)];
+        for (auto &fmt : formats)
+        {
+            vector<TensorFormat> org_format = tensor.storageFormat;
+            vector<TensorFormat> mutated_format = parseTensorFormat(fmt);
+            if (is_equal(org_format, mutated_format))
+                continue;
+            
+            tensor.storageFormat = parseTensorFormat(fmt);
+            string mutated_file_name = "./data/kernel"+to_string(++count)+".json";
+            kernel.saveJson(mutated_file_name);
+            mutated_file_names.push_back(mutated_file_name);
+            tensor.storageFormat = org_format;
+        }
+    }
+    
+    return mutated_file_names;
+}
+
+vector<string> mutate_equivalent_kernel(const string& original_kernel_file, MutationOperator mutation_operator, int max_mutants)
+{
+    tsKernel kernel;
+    kernel.loadJson(original_kernel_file);
+
+    vector<string> mutated_kernel_files;
+
+    switch (mutation_operator)
+    {
+    case SPARSITY:
+        mutated_kernel_files = sparsity_mutation(kernel, max_mutants);
+        break;
+    default:
+        break;
+    }
+
+    // cout << kernel << endl;
+    return mutated_kernel_files;
 }

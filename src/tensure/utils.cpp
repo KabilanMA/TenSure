@@ -2,9 +2,35 @@
 
 ostream& operator<<(ostream& os, const tsTensor& tensor) 
 {
-    os << "Tensor: " << tensor.str_repr << "\nShape: " << "[" << join(tensor.shape, ", ") << "]\nFormats: " << "[" << join(tensor.storageFormat, ", ") << "]";
+    os << "Tensor: " << tensor.str_repr << "\nShape: " << "[" << join(tensor.shape, ", ") << "]\nFormats: " << "[" << join(to_string(tensor.storageFormat), ", ") << "]";
     return os;
 }
+
+ostream& operator<<(ostream& os, const tsKernel& kernel) 
+{
+    for (auto &tensor : kernel.tensors)
+    {
+        os << tensor << "\n";
+
+        std::string name(1, tensor.name);
+        auto it = kernel.dataFileNames.find(name);
+
+        if (it != kernel.dataFileNames.end())
+            os << "dataFileName: " << it->second << "\n";
+        else
+            os << "dataFileName: [not found]\n";
+
+    }
+
+    os << "Computations: ";
+    for (auto &computation : kernel.computations)
+    {
+        os << "\n\t" << computation.expressions;
+    }
+    return os;
+}
+
+// bool is_exist(vector<vector<string>>)
 
 vector<char> find_idxs(vector<tsTensor> ts_tensors)
 {
@@ -64,7 +90,7 @@ void saveTensorData(const tsTensor& t, const std::string& filename)
 
     // Save storage format
     out << t.storageFormat.size() << " ";
-    for (auto& s : t.storageFormat) out << s << " ";
+    for (auto& s : t.storageFormat) out << to_string(s) << " ";
     out << "\n";
 }
 
@@ -86,7 +112,12 @@ tsTensor loadTensorData(const string& filename)
     size_t fmtCount;
     in >> fmtCount;
     t.storageFormat.resize(fmtCount);
-    for (size_t i = 0; i < fmtCount; i++) in >> t.storageFormat[i];
+    for (size_t i = 0; i < fmtCount; i++)
+    {
+        string s;
+        in >> s;
+        t.storageFormat[i] = parseTensorFormat(s);
+    }
 
     return t;
 }
@@ -103,7 +134,7 @@ void saveKernelJson(const string& filename, const vector<tsTensor>& tensors, con
             {"str_repr", t.str_repr},
             {"idxs", t.idxs},
             {"shape", t.shape},
-            {"storageFormat", t.storageFormat},
+            {"storageFormat", to_string(t.storageFormat)},
             {"dataFile", (string(1,t.name) + ".tns")}
         });
     }
@@ -140,10 +171,10 @@ void loadKernelJson(const string& filename, map<char, tsTensor>& tensorsMap, vec
     for (auto& t : j["tensors"])
     {
         tsTensor desc;
-        std::string s = t["name"].get<std::string>();
+        string s = t["name"].get<string>();
         desc.name = s.empty() ? '\0' : s[0];
-        desc.shape = t["shape"].get<std::vector<int>>();
-        desc.storageFormat = t["storageFormat"].get<std::vector<std::string>>();
+        desc.shape = t["shape"].get<vector<int>>();
+        desc.storageFormat = parseTensorFormat(t["storageFormat"].get<vector<string>>());
         tensorsMap[desc.name] = desc;
     }
 
@@ -188,4 +219,31 @@ bool generate_kernel(vector<tsTensor>& tensors, vector<string> computations, vec
 
     kernel.saveJson(file_name);
     return true;
+}
+
+void generate_all_formats(int rank, vector<vector<string>>& out, vector<string>& current)
+{
+    if ((int)current.size() == rank)
+    {
+        out.push_back(current);
+        return;
+    }
+
+    // insert Dense
+    current.push_back("Dense");
+    generate_all_formats(rank, out, current);
+    current.pop_back();
+
+    // insert Sparse
+    current.push_back("Sparse");
+    generate_all_formats(rank, out, current);
+    current.pop_back();
+}
+
+vector<vector<string>> generate_all_formats(int rank)
+{
+    vector<vector<string>> all;
+    vector<string> current;
+    generate_all_formats(rank, all, current);
+    return all;
 }
