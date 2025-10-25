@@ -1,4 +1,4 @@
-## TenSure - Tensor Compiler Fuzzer
+## TenSure - Sparse Tensor Compiler Fuzzer
 
 Build Process
 1. Make ./scripts/build_externals.sh executable

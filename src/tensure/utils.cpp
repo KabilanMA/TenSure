@@ -74,6 +74,18 @@ string join(const vector<char>& idxs, const string delimitter) {
     return s;
 }
 
+string join(const set<char>& chars, const string delimitter)
+{
+    string s;
+    for (auto it = chars.begin(); it != chars.end(); ++it)
+    {
+        s += *it;
+        if (next(it) != chars.end())
+            s += delimitter;
+    }
+    return s;
+}
+
 
 void saveTensorData(const tsTensor& t, const std::string& filename) 
 {
@@ -202,6 +214,7 @@ void ensure_directory_exists(const std::string& path)
 bool generate_kernel(vector<tsTensor>& tensors, vector<string> computations, vector<string> dataFileNames, string file_name)
 {
     if (tensors.size() != dataFileNames.size()) return false;
+
     tsKernel kernel;
     for (size_t i = 0; i < tensors.size(); i++)
     {
@@ -217,7 +230,23 @@ bool generate_kernel(vector<tsTensor>& tensors, vector<string> computations, vec
         kernel.computations.push_back(comp);
     }
 
-    kernel.saveJson(file_name);
+    // Atomic write
+    std::string tmp_name = file_name + ".tmp";
+
+    try
+    {
+        kernel.saveJson(tmp_name); // write to a temporary file first
+        std::filesystem::rename(tmp_name, file_name); // atomic replacement
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << "generate_kernel failed: " << e.what() << std::endl;
+        // Cleanupo temp if partially written
+        std::error_code ec;
+        std::filesystem::remove(tmp_name, ec);
+        return false;
+    }
+    
     return true;
 }
 

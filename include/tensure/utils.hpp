@@ -82,6 +82,7 @@ void loadKernelJson(const string& filename, map<char, tsTensor>& tensorsMap, vec
 string join(const vector<char>& idxs, const string delimitter=",");
 string join(const vector<int>& idxs, const string delimitter=",");
 string join(const vector<string>& idxs, const string delimitter=",");
+string join(const set<char>& chars, const string delimitter=",");
 
 /**
  * Utility: ensure a directory exist, if not create one
