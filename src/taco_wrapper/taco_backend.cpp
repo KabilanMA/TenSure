@@ -6,23 +6,8 @@
 #include <iostream>
 #include <filesystem>
 
-namespace fs = std::filesystem;
 
-bool generate_kernel(const vector<tsTensor>& tensors, const vector<string>& computations, const vector<string>& dataFiles, const string& outFile) {
-    if (tensors.size() != dataFiles.size()) return false;
-
-    tsKernel kernel;
-    for (size_t i = 0; i < tensors.size(); i++) {
-        kernel.tensors.push_back(tensors[i]);
-        kernel.dataFileNames.insert({std::string(1, tensors[i].name), dataFiles[i]});
-    }
-
-    for (auto& comp : computations) {
-        tsComputation c;
-        c.expressions = comp;
-        kernel.computations.push_back(c);
-    }
-
+bool generate_taco_kernel(const tsKernel& kernel, const string& outFile) {
     try {
         // generate TACO program string
         string program_code = taco_wrapper::generate_program(kernel);
@@ -32,7 +17,7 @@ bool generate_kernel(const vector<tsTensor>& tensors, const vector<string>& comp
         ofstream ofs(tmp_name);
         ofs << program_code;
         ofs.close();
-        fs::rename(tmp_name, outFile); // atomic replacement
+        fs::rename(tmp_name, (outFile + ".cpp")); // atomic replacement
     } catch (const exception& e) {
         cerr << "TacoBackend::generate_kernel failed: " << e.what() << endl;
         return false;
@@ -41,8 +26,17 @@ bool generate_kernel(const vector<tsTensor>& tensors, const vector<string>& comp
     return true;
 }
 
-bool TacoBackend::generate_kernel(const vector<string>& tskernel, const string& outFile) {
+bool TacoBackend::generate_kernel(const vector<string>& mutated_kernel_file_names, const fs::path& output_dir) {
     // Call your existing executor.cpp function
+    for (auto &mutated_file_name : mutated_kernel_file_names) {
+        fs::path p(mutated_file_name);
+        string taco_kernel_file = output_dir / (p.stem().string());
+        // std::cout << taco_kernel_file << std::endl;
+        tsKernel tskernel;
+        tskernel.loadJson(mutated_file_name);
+        generate_taco_kernel(tskernel, taco_kernel_file);
+    }
+    
     return true;
 }
 

@@ -5,9 +5,10 @@
 #include <vector>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 struct TacoBackend : public FuzzBackend {
-    bool generate_kernel(const vector<string>& tskernel, const string& outFile) override;
+    bool generate_kernel(const vector<string>& mutated_kernel_file_names, const fs::path& output_dir) override;
 
     bool execute_kernel(const string& kernelPath,
                         const string& outputDir) override;

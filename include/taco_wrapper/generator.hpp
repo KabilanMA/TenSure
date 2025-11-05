@@ -42,6 +42,6 @@ typedef struct TacoTensor {
     }
 } TacoTensor;
 
-string generate_program(tsKernel &kernel_info);
+string generate_program(const tsKernel &kernel_info);
 
 }

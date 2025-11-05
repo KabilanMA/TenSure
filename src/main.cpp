@@ -11,6 +11,7 @@
 #include <memory>
 #include <dlfcn.h>
 #include <future>
+#include "tensure/logger.hpp"
 
 #include "tensure/random_gen.hpp"                // your generator helpers (tsTensor, etc.)
 #include "backends/backend_interface.hpp"       // FuzzBackend interface
@@ -177,6 +178,7 @@ int main(int argc, char* argv[]) {
     fs::create_directories(corpus_dir);
     fs::create_directories(fail_dir);
     fs::create_directories(data_root);
+    Logger::instance().setLogFile("fuzzer.log");
 
     // Load backend plugin (target)
     PluginHandle target_ph;
@@ -206,7 +208,7 @@ int main(int argc, char* argv[]) {
         }
     } else {
         ref_backend = target_backend; // use same implementation as trusted one if none provided
-        cout << "No separate ref backend provided — using target backend as reference (outputs will match trivially).\n";
+        cout << "No separate ref backend provided — using target backend as reference.\n";
     }
 
     // Main fuzz loop
@@ -229,8 +231,16 @@ int main(int argc, char* argv[]) {
             vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", MutationOperator::SPARSITY, 100);
 
             // 3) Generate backend-specific kernel
-            // fs::path backend_kernel = iter_dir / "backend_kernel"; // plugin decides extension/format
-            // bool gen_ok = target_backend->generate_kernel()
+            fs::path backend_kernel = iter_dir / "backend_kernel"; // plugin decides extension/format
+            fs::create_directories(backend_kernel);
+            // vector<tsKernel> mutated_kernels;
+            // for (auto &mutated_file_name : mutated_file_names)
+            // {
+            //     tsKernel tskernel;
+            //     tskernel.loadJson(mutated_file_name);
+            //     mutated_kernels.push_back(tskernel);
+            // }
+            bool gen_ok = target_backend->generate_kernel(mutated_file_names, backend_kernel);
 
 
             // bool gen_ok = target_backend->generate_kernel(tensors, vector<string>{einsum}, datafile_names, backend_kernel.string());

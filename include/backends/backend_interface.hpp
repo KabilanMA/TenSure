@@ -1,13 +1,15 @@
 #pragma once
 #include <string>
 #include <vector>
+#include "tensure/formats.hpp"
 
 using namespace std;
+namespace fs = std::filesystem;
 
 struct FuzzBackend {
     virtual ~FuzzBackend() = default;
 
-    virtual bool generate_kernel(const vector<string>& tskernel, const string& outFile) = 0;
+    virtual bool generate_kernel(const vector<string>& mutated_kernel_file_names, const fs::path& output_dir) = 0;
 
     virtual bool execute_kernel(const string& kernelPath, const string& outputDir) = 0;
 

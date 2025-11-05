@@ -14,7 +14,7 @@ TacoTensor toTacoTensor(const tsTensor& t, const string& dataFilename)
     return tacoT;
 }
 
-string generate_program(tsKernel &kernel_info)
+string generate_program(const tsKernel &kernel_info)
 {
     int tab_space_count = 4;
     std::string space = "";
@@ -28,7 +28,7 @@ string generate_program(tsKernel &kernel_info)
     vector<string> tensor_init = {};
     for(size_t i = 0; i < kernel_info.tensors.size(); i++)
     {
-        tsTensor &tensor = kernel_info.tensors[i];
+        const tsTensor &tensor = kernel_info.tensors[i];
         string tensorDataFilename = kernel_info.dataFileNames.at(std::string(1, tensor.name));
         for (auto &id : tensor.idxs)
             indexVar.insert(id);

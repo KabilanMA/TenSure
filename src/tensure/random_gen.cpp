@@ -5,7 +5,8 @@ map<char, int> map_id_to_val(vector<char> idxs)
     map<char, int> id_val_map;
     random_device rd;
     mt19937 gen(rd());
-    uniform_int_distribution<int> dist(3, 20);
+    int mini = std::min(6, static_cast<int>(idxs.size()));
+    uniform_int_distribution<int> dist(3, mini);
     for (auto &idx: idxs)
     {
         id_val_map[idx] = dist(gen);
@@ -30,12 +31,15 @@ static void __fillTensorRecursive(const tsTensor& tensor, tsTensorData& tensorDa
         ostringstream oss;
         oss << std::fixed << std::setprecision(2) << randomValue;
         std::string strValue = oss.str();
+        // LOG_DEBUG("Inserting data: " + strValue);
 
         if (insert_dist(gen)) {
             tensorData.insert(current_coordinate, stod(strValue));
         }
         return;
     }
+    // LOG_DEBUG("Recursive: " + to_string(tensor.shape.size()));
+    // LOG_DEBUG("Recursive depth: " + to_string(depth));
     for (size_t i = 0; i < tensor.shape[depth]; i++) {
         current_coordinate[depth] = i;
         __fillTensorRecursive(tensor, tensorData, current_coordinate, gen, insert_dist, depth+1);
@@ -57,10 +61,12 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
 
     for (auto &tensor : tensors)
     {
-        cout << tensor.name << endl;
+        // cout << tensor.name << endl;
         tsTensorData tsData;
         vector<int> current_coordinate(tensor.shape.size());
-
+        
+        // LOG_DEBUG("Inserting data to tensor: " + std::string(1, tensor.name));
+        // LOG_DEBUG("Tensor shape: " + join(tensor.shape));
         // Fill in the tensor data
         __fillTensorRecursive(tensor, tsData, current_coordinate, gen, insert_dist, 0);
 
@@ -96,7 +102,8 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
 // DONE
 tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int maxRank)
 {
-    static const std::string pool = "ijklmnopqrstu";
+    // static const std::string pool = "ijklmnopqrstu";
+    static const std::string pool = "ijklmn";
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> rankDist(1, maxRank);
