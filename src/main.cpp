@@ -226,28 +226,20 @@ int main(int argc, char* argv[]) {
             // 2) Generate and store data for tensors
             vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "");
             if (!generate_ref_kernel(tensors, {einsum}, datafile_names, (iter_dir / "kernel.json").string()))
+            {
                 continue;
+            }
             
             vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", MutationOperator::SPARSITY, 100);
 
             // 3) Generate backend-specific kernel
             fs::path backend_kernel = iter_dir / "backend_kernel"; // plugin decides extension/format
             fs::create_directories(backend_kernel);
-            // vector<tsKernel> mutated_kernels;
-            // for (auto &mutated_file_name : mutated_file_names)
-            // {
-            //     tsKernel tskernel;
-            //     tskernel.loadJson(mutated_file_name);
-            //     mutated_kernels.push_back(tskernel);
-            // }
             bool gen_ok = target_backend->generate_kernel(mutated_file_names, backend_kernel);
-
-
-            // bool gen_ok = target_backend->generate_kernel(tensors, vector<string>{einsum}, datafile_names, backend_kernel.string());
-            // if (!gen_ok) {
-            //     cerr << "generate_kernel failed for iter " << iter << "\n";
-            //     continue;
-            // }
+            if (!gen_ok) {
+                cerr << "generate_kernel failed for iter " << iter << "\n";
+                continue;
+            }
 
             // // 4) Run reference executor (trusted) once to produce expected outputs
             // fs::path ref_out_dir = iter_data_dir / "ref_out";

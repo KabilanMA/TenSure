@@ -24,7 +24,7 @@ typedef struct TacoTensor {
     string initilization_string(string tab_space)
     {   
         ostringstream oss;
-        oss << tab_space << "Tensor<double> " << name << "(\"A\", {" << join(shape, ",") << "}, {";
+        oss << tab_space << "Tensor<double> " << name << "(\"" << name << "\", {" << join(shape, ",") << "}, Format({";
         string dataFormat = "";
         for (int i = 0; i < fmt.size(); i++)
         {
@@ -34,14 +34,19 @@ typedef struct TacoTensor {
                 dataFormat += ",";
             }
         }
-        oss << dataFormat << "});\n";
+        oss << dataFormat << "}));\n";
 
-        oss << tab_space << name << " = " << "read(\"" << dataFilename << "\", {" << dataFormat << "});\n\n";
+        if (dataFilename != "-")
+        {
+            oss << tab_space << name << " = " << "read(\"" << dataFilename << "\", Format({" << dataFormat << "}));\n";
+            oss << tab_space << name << ".pack();\n\n";
+        }
         
         return oss.str();
     }
 } TacoTensor;
 
-string generate_program(const tsKernel &kernel_info);
+bool generate_taco_kernel(const tsKernel& kernel, const fs::path& outFile);
+string generate_program(const tsKernel &kernel_info, const string& results_file);
 
 }

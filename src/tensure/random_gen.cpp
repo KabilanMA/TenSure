@@ -59,8 +59,9 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
 
     ensure_directory_exists(location);
 
-    for (auto &tensor : tensors)
+    for (size_t i = 1; i < tensors.size(); i++)
     {
+        auto &tensor = tensors[i];
         // cout << tensor.name << endl;
         tsTensorData tsData;
         vector<int> current_coordinate(tensor.shape.size());
@@ -226,7 +227,7 @@ tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int m
     return {tsTensors, (lhs + " = " + rhs)};
 }
 
-vector<string> sparsity_mutation(const fs::path kernel_directory, tsKernel &kernel, int max_mutants)
+vector<string> sparsity_mutation(const fs::path kernel_directory, const fs::path& original_kernel_file, tsKernel &kernel, int max_mutants)
 {
     vector<tsTensor>& tensors = kernel.tensors;
     vector<string> mutated_file_names = {};
@@ -285,6 +286,7 @@ vector<string> sparsity_mutation(const fs::path kernel_directory, tsKernel &kern
 
     // Create the mutations into JSON kernel files.
     int count = 0;
+    mutated_file_names.push_back(original_kernel_file.string());
     for (auto &tensor : tensors)
     {
         vector<vector<string>> formats = tensor_sparsity[string(1, tensor.name)];
@@ -318,7 +320,7 @@ vector<string> mutate_equivalent_kernel(const fs::path& directory, const string&
     switch (mutation_operator)
     {
     case SPARSITY:
-        mutated_kernel_files = sparsity_mutation(directory, kernel, max_mutants);
+        mutated_kernel_files = sparsity_mutation(directory, full_filename, kernel, max_mutants);
         break;
     default:
         break;

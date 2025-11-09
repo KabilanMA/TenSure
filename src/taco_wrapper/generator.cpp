@@ -14,7 +14,28 @@ TacoTensor toTacoTensor(const tsTensor& t, const string& dataFilename)
     return tacoT;
 }
 
-string generate_program(const tsKernel &kernel_info)
+bool generate_taco_kernel(const tsKernel& kernel, const fs::path& outFile) {
+    try {
+        // generate TACO program string
+        fs::create_directories(outFile);
+        string results_file = outFile / "result.tns";
+        string program_code = generate_program(kernel, results_file);
+
+        // atomic write
+        string tmp_name = outFile / ((outFile.parent_path().stem().string()) + ".tmp");
+        ofstream ofs(tmp_name);
+        ofs << program_code;
+        ofs.close();
+        fs::rename(tmp_name, (outFile / ((outFile.parent_path().stem().string()) + ".cpp")).string()); // atomic replacement
+    } catch (const exception& e) {
+        cerr << "TacoBackend::generate_kernel failed: " << e.what() << endl;
+        return false;
+    }
+
+    return true;
+}
+
+string generate_program(const tsKernel &kernel_info, const string &results_file)
 {
     int tab_space_count = 4;
     std::string space = "";
@@ -47,6 +68,14 @@ string generate_program(const tsKernel &kernel_info)
     {
         oss << space << expression.expressions << ";\n\n";
     }
+
+    oss << space << kernel_info.tensors[0].name << ".compile();\n";
+    oss << space << kernel_info.tensors[0].name << ".assemble();\n";
+    oss << space << kernel_info.tensors[0].name << ".compute();\n\n";
+
+    oss << space << "write(\"" << results_file << "\", " << kernel_info.tensors[0].name << ");\n\n";
+
+    oss << space << "return 0;\n";
 
     oss << "}";
     return oss.str();

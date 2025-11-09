@@ -213,7 +213,7 @@ void ensure_directory_exists(const std::string& path)
 
 bool generate_ref_kernel(const vector<tsTensor>& tensors, const vector<string>& computations, const vector<string>& dataFileNames, string file_name)
 {
-    if (tensors.size() != dataFileNames.size()) return false;
+    if (tensors.size()-1 != dataFileNames.size()) return false;
     // cout << "SDSDS 1" << endl;
     tsKernel kernel;
     for (size_t i = 0; i < tensors.size(); i++)
@@ -221,7 +221,10 @@ bool generate_ref_kernel(const vector<tsTensor>& tensors, const vector<string>& 
         // cout << "SDSDS 2" << i << endl;
         auto &tensor = tensors[i];
         kernel.tensors.push_back(tensor);
-        kernel.dataFileNames.insert({string(1,tensor.name),dataFileNames[i]});
+        if (i != 0)
+            kernel.dataFileNames.insert({string(1,tensor.name),dataFileNames[i-1]});
+        else
+            kernel.dataFileNames.insert({string(1, tensor.name), "-"});
     }
 
     for (const auto& computation : computations)

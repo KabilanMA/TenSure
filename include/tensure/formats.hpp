@@ -189,6 +189,7 @@ typedef struct tsKernel
         // Write JSON to file in pretty format
         ofstream out(file_name);
         out << j.dump(4);
+        // cout << j.dump(4) << endl;
     }
 
     void loadJson(const string& file_name)
