@@ -6,6 +6,8 @@
 #include <vector>
 #include <unordered_map>
 #include <cmath>
+#include <stdexcept>
+#include <iostream>
 
 namespace taco_wrapper
 {

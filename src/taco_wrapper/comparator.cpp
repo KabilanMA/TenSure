@@ -4,58 +4,75 @@ namespace taco_wrapper {
 
 using namespace std;
 
-bool compare_outputs(const string& ref_output, const string& kernel_output, double total)
-{
-    auto read_tensor = [](const string& path){
-        unordered_map<string, double> data;
-        ifstream file(path);
-        if (!file.is_open()) throw runtime_error("Cannot open " + path);
-
-        string line;
-        while(getline(file, line)) {
-            istringstream iss(line);
-            vector<int> coords;
-            string token;
-            double last_val;
-
-            // Read all but last
-            while (iss >> token) {
-                try {
-                    last_val = stod(token);
-                    break; // Last token is value
-                } catch (...) {
-                    coords.push_back(stoi(token));
-                }
-            }
-
-            // convert coords to string key
-            string key;
-            for (auto &c : coords) {
-                key += to_string(c) + ",";
-            }
-
-            // Only store the nnz entries
-            if (last_val != 0.0)
-                data[key] = last_val;
+struct VecHash {
+    size_t operator()(const std::vector<int>& v) const noexcept {
+        size_t h = 0;
+        for (int x : v) {
+            h = h * 1315423911u + std::hash<int>()(x);
         }
+        return h;
+    }
+};
+
+bool compare_outputs(const std::string& ref_output,
+                     const std::string& kernel_output,
+                     double tol)
+{
+    auto read_tensor = [&](const std::string& path) {
+        std::unordered_map<std::vector<int>, double, VecHash> data;
+
+        std::ifstream file(path);
+        if (!file.is_open()) {
+            throw std::runtime_error("Cannot open " + path);
+        }
+
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty()) continue;
+
+            std::istringstream iss(line);
+            std::vector<std::string> toks;
+            std::string tok;
+
+            while (iss >> tok) {
+                toks.push_back(tok);
+            }
+
+            if (toks.size() < 2)
+                continue; // ignore garbage lines
+
+            double val = std::stod(toks.back());
+            if (val == 0.0)
+                continue; // skip zeros entirely
+
+            std::vector<int> coords;
+            coords.reserve(toks.size() - 1);
+            for (size_t i = 0; i + 1 < toks.size(); ++i) {
+                coords.push_back(std::stoi(toks[i]));
+            }
+
+            data.emplace(std::move(coords), val);
+        }
+
         return data;
     };
 
-    auto ref_data_map = read_tensor(ref_output);
-    auto out_data_map = read_tensor(kernel_output);
+    auto ref = read_tensor(ref_output);
+    auto out = read_tensor(kernel_output);
 
-    if (ref_data_map.size() != out_data_map.size()) {
+    if (ref.size() != out.size())
         return false;
+
+    for (auto& [coords, val_ref] : ref) {
+        auto it = out.find(coords);
+        if (it == out.end())
+            return false;
+
+        if (std::fabs(it->second - val_ref) > tol)
+            return false;
     }
 
-    for (auto& [key, val] : ref_data_map) {
-        auto it = out_data_map.find(key);
-        if (it == out_data_map.end()) return false;
-        if (std::fabs(it->second - val) > total) return false;
-    }
-    
     return true;
 }
-
 
 }
