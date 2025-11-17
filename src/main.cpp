@@ -160,7 +160,6 @@ int main(int argc, char* argv[]) {
     string backend_so;
     string ref_backend_so; // optional
     uint64_t executor_timeout_ms = 30'000;
-    cout << "AS" << endl;
     // read CLI args simply
     for (int i = 1; i < argc; ++i) {
         string s = argv[i];
@@ -174,7 +173,6 @@ int main(int argc, char* argv[]) {
             cerr << "Unknown arg: " << s << "\n";
         }
     }
-    cout << "AS" << endl;
 
     // allow env fallback
     if (backend_so.empty()) {
@@ -210,11 +208,8 @@ int main(int argc, char* argv[]) {
     fs::create_directories(corpus_dir);
     fs::create_directories(fail_dir);
 
-    cout << "AS" << endl;
     // Logging
     Logger::instance().setLogFile("./fuzzer.log");
-    cout << "AS" << endl;
-    LOG_INFO("====================================================================================");
     LOG_INFO("Fuzzer starting...");
     Logger::instance().setConsoleOnly(false);
     cout << "Starting fuzz loop with seed=" << seed << " up to " << max_iterations << " iterations\n";
@@ -267,8 +262,10 @@ int main(int argc, char* argv[]) {
             fs::create_directories(iter_data_dir);
 
             // 1) Generate random kernel specification (einsum equations + tensor meta)
-            auto [tensors, einsum] = generate_random_einsum(2, 6);
-            LOG_INFO("Randomly generated Einsum: " + einsum);
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<int> dist_tensor_count(2, 5);
+            auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(gen), 6);
 
             // 2) Generate and store data for tensors
             vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "");

@@ -33,7 +33,10 @@ bool compare_outputs(const string& ref_output, const string& kernel_output, doub
             for (auto &c : coords) {
                 key += to_string(c) + ",";
             }
-            data[key] = last_val;
+
+            // Only store the nnz entries
+            if (last_val != 0.0)
+                data[key] = last_val;
         }
         return data;
     };

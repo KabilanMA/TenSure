@@ -1,14 +1,29 @@
 #include "tensure/random_gen.hpp"
 
-map<char, int> map_id_to_val(vector<char> idxs)
+map<char, int> map_id_to_val(const std::vector<char>& idxs)
 {
-    map<char, int> id_val_map;
-    random_device rd;
-    mt19937 gen(rd());
-    int mini = std::min(6, static_cast<int>(idxs.size()));
-    uniform_int_distribution<int> dist(3, mini);
-    for (auto &idx: idxs)
-    {
+    std::map<char, int> id_val_map;
+
+    if (idxs.empty()) {
+        // Nothing to assign, return empty map
+        return id_val_map;
+    }
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    // Determine upper bound for distribution
+    int upper = std::min(6, static_cast<int>(idxs.size()));
+
+    // Ensure lower bound <= upper bound
+    int lower = 3;
+    if (upper < lower) {
+        upper = lower; // safe fallback
+    }
+
+    std::uniform_int_distribution<int> dist(lower, upper);
+
+    for (auto& idx : idxs) {
         id_val_map[idx] = dist(gen);
     }
 
@@ -95,7 +110,7 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
 
         out.close();
         cout << "Saved tensor data: " << filename << endl;
-        LOG_INFO("Generated Tensor Data: "+  filename);
+        // LOG_INFO("Generated Tensor Data: "+  filename);
         datafile_names.push_back(filename);
     }
 

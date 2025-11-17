@@ -6,7 +6,6 @@
 mkdir build && cd build
 cmake .. -DBUILD_TACO=ON
 make -j$(nproc)
-./TenSure --backend ./libtaco_wrapper.so
 ```
 
 ### Running the Fuzzer

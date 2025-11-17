@@ -18,7 +18,7 @@ using namespace std;
  * @param idxs Set of indices
  * @return Map of index to random value
  */
-map<char, int> map_id_to_val(vector<char> idxs);
+map<char, int> map_id_to_val(const std::vector<char>& idxs);
 
 /**
  * Utility: Randomly return whether a tensor dimension is sparse or dense.
