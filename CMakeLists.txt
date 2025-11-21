@@ -50,7 +50,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES ENABLE_EXPORTS ON)
 # ------------------------------
 # Selective backend building options
 # ------------------------------
-option(BUILD_TACO "Build TACO backend" ON)
+option(BUILD_TACO "Build TACO backend" OFF)
 option(BUILD_FINCH "Build Finch backend" OFF)
 
 # ------------------------------
