@@ -102,5 +102,15 @@ void ensure_directory_exists(const std::string& path);
  */
 bool generate_ref_kernel(const vector<tsTensor>& tensors, const vector<string>& computations, const vector<string>& dataFileNames, string file_name);
 
+/**
+ * Utility: Compare two tensor output files for equality within a tolerance
+ * @param ref_output reference output file path
+ * @param kernel_output kernel output file path
+ * @param tol tolerance for floating-point comparison
+ * @return bool true if outputs match within tolerance, false otherwise
+ * @throw runtime_error if files cannot be opened
+ */
+bool compare_outputs(const string& ref_output, const string& kernel_output, double tol);
+
 
 vector<vector<string>> generate_all_formats(int rank);
