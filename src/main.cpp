@@ -267,6 +267,7 @@ int main(int argc, char* argv[]) {
             std::uniform_int_distribution<int> dist_tensor_count(2, 5);
             auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(gen), 6);
 
+            LOG_INFO("Generated Random Einsum: " + einsum);
             // 2) Generate and store data for tensors
             vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "");
             if (!generate_ref_kernel(tensors, {einsum}, datafile_names, (iter_dir / "kernel.json").string()))
