@@ -293,13 +293,17 @@ struct VecHash {
     }
 };
 
+static bool ends_with(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() &&
+           s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
 
 bool compare_outputs(const string& ref_output, const string& kernel_output, double tol)
 {
-    auto read_tensor = [&](const string& path) {
+    auto read_tns = [&](const string& path) {
         unordered_map<vector<int>, double, VecHash> data;
 
-        std::ifstream file(path);
+        ifstream file(path);
         if (!file.is_open()) {
             throw runtime_error("Cannot open " + path);
         }
@@ -331,8 +335,111 @@ bool compare_outputs(const string& ref_output, const string& kernel_output, doub
 
             data.emplace(move(coords), val);
         }
+        return data;
+    };
+
+    auto read_mtx = [&](const string& path) {
+        unordered_map<vector<int>, double, VecHash> data;
+
+        ifstream file(path);
+        if (!file.is_open()) {
+            throw runtime_error("Cannot open " + path);
+        }
+
+        string line;
+        // Skip comments and header lines
+        while(getline(file, line)) {
+            if (line.empty()) continue;
+            if (line[0] == '%') continue;
+            break;
+        }
+
+        // First non-comment line: M N NNZ
+        {
+            istringstream iss(line);
+            vector<string> toks;
+            string tok;
+
+            while (iss >> tok) toks.push_back(tok);
+            if (toks.size() < 3)
+                throw runtime_error("Invalid MTX header: " + path);
+        }
+
+        // Read triplets
+        while (getline(file, line)) {
+            if (line.empty()) continue;
+
+            istringstream iss(line);
+            vector<string> toks;
+            string tok;
+            while (iss >> tok) toks.push_back(tok);
+
+            if (toks.size() < 3)
+                continue;
+
+            int i = std::stoi(toks[0]);
+            int j = std::stoi(toks[1]);
+            double val = std::stod(toks[2]);
+
+            if (val == 0.0)
+                continue;
+            
+            vector<int> coords = {i, j};
+            data.emplace(move(coords), val);
+        }
 
         return data;
+    };
+
+    auto read_ttx = [&](const string& path) {
+        unordered_map<vector<int>, double, VecHash> data;
+
+        ifstream file(path);
+        if (!file.is_open()) {
+            throw runtime_error("Cannot open " + path);
+        }
+
+        string line;
+        while(getline(file, line)) {
+            if (line.empty()) continue;
+
+            istringstream iss(line);
+            vector<string> toks;
+            string tok;
+
+            while (iss >> tok) {
+                toks.push_back(tok);
+            }
+
+            if (toks.size() < 2)
+                continue;
+            
+            double val = std::stod(toks.back());
+            if (val == 0.0)
+                continue;
+            
+            vector<int> coords;
+            coords.reserve(toks.size() - 1);
+
+            for (size_t i = 0; i + 1 < toks.size(); ++i) {
+                coords.push_back(std::stoi(toks[i]));
+            }
+
+            data.emplace(move(coords), val);
+        }
+
+        return data;
+    };
+
+    auto read_tensor = [&](const string& path) {
+        if (ends_with(path, ".tns")) 
+            return read_tns(path);
+        if (ends_with(path, ".mtx")) 
+            return read_mtx(path);
+        if (ends_with(path, ".ttx")) 
+            return read_ttx(path);
+        
+        throw runtime_error("Unsupported tensor format: " + path);
     };
 
     auto ref = read_tensor(ref_output);
