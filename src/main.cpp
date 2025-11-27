@@ -133,10 +133,10 @@ void archive_failure_case(const fs::path &dir_name, const fs::path &kernel_dir, 
         fs::path case_failure_dir = fail_dir / dir_name;
         fs::create_directories(case_failure_dir);
 
-        // 1. Copy the kernel_dir → case_failure_dir/<kernel-name>
+        // 1. Copy the kernel_dir -> case_failure_dir/<kernel-name>
         copy_tree(kernel_dir, case_failure_dir / kernel_dir.stem());
 
-        // 2. Copy ref kernel if needed
+        // 2. Copy ref kernel
         if (kernel_dir.stem().string() != "kernel") {
             fs::path ref_kernel = kernel_dir.parent_path() / "kernel";
             copy_tree(ref_kernel, case_failure_dir / ref_kernel.stem());
@@ -160,6 +160,7 @@ int main(int argc, char* argv[]) {
     string backend_so;
     string ref_backend_so; // optional
     uint64_t executor_timeout_ms = 30'000;
+    string tensor_file_format = "tns";
     // read CLI args simply
     for (int i = 1; i < argc; ++i) {
         string s = argv[i];
@@ -169,6 +170,18 @@ int main(int argc, char* argv[]) {
             ref_backend_so = argv[++i];
         } else if ((s == "--timeout") && i + 1 < argc) {
             executor_timeout_ms = stoull(argv[++i]);
+        } else if ((s == "--tensor-format" || s == "--tfmt") && i + 1 < argc) {
+            string user_tfmt = argv[++i];
+            std::transform(user_tfmt.begin(), user_tfmt.end(), user_tfmt.begin(), 
+                            [](unsigned char c) { 
+                                return std::tolower(c); 
+                            });
+            if (user_tfmt != "tns" || user_tfmt != "ttx")
+            {
+                cerr << "Unsupported tensor storage format: " << user_tfmt << "\n";
+            } else {
+                tensor_file_format = user_tfmt;
+            }
         } else {
             cerr << "Unknown arg: " << s << "\n";
         }
@@ -269,14 +282,19 @@ int main(int argc, char* argv[]) {
 
             LOG_INFO("Generated Random Einsum: " + einsum);
             // 2) Generate and store data for tensors
-            vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "");
+            vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "", tensor_file_format);
+            // check whether we got data for all input tensors.
+            if (datafile_names.size() != tensors.size() - 1)  { // -1 to restrict the input tensor
+                LOG_ERROR("Tensor data generation failed for fuzzing iteration: " + iter_id);
+                continue;
+            }
             if (!generate_ref_kernel(tensors, {einsum}, datafile_names, (iter_dir / "kernel.json").string()))
             {
                 LOG_WARN("Backend Kernel Generation Failed: " + backend_so);
                 continue;
             }
             
-            vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", MutationOperator::SPARSITY, 100);
+            vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", MutationOperator::SPARSITY, 10);
             LOG_INFO("Generated " + to_string(mutated_file_names.size()) + " Equivalent Mutants.");
 
             // 3) Generate backend-specific kernel
@@ -349,7 +367,8 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // // 7) Save passing case to corpus for future shrinking/replay (copy iter_data_dir -> corpus)
+            // Not Completed
+            // // 6) Save passing case to corpus for future shrinking/replay (copy iter_data_dir -> corpus)
             // for (auto &entry : fs::directory_iterator(iter_data_dir)) {
             //     fs::path dest = iter_dir / entry.path().filename();
             //     if (fs::is_directory(entry.path()))

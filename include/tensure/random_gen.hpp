@@ -30,6 +30,6 @@ TensorFormat random_format(mt19937& gen);
 
 tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int maxRank);
 
-vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix);
+vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix, string tfmt);
 
 vector<string> mutate_equivalent_kernel(const fs::path& directory, const string& original_kernel_filename, MutationOperator mutation_operator, int max_mutants = -1);

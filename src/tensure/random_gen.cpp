@@ -61,11 +61,78 @@ static void __fillTensorRecursive(const tsTensor& tensor, tsTensorData& tensorDa
     }
 }
 
+static bool tns_tensor_data_save(const tsTensor& tensor, const tsTensorData& tsData, const string& filename)
+{
+    if (tsData.tfmt != "tns") {
+        cout << "Unsupported file format save function called: " << tsData.tfmt << "\n";
+    }
+    ofstream out(filename);
+
+    if (!out) {
+        cerr << "Error: could not open file " << filename << endl;
+        LOG_WARN("Error: could not open file " + filename);
+        return false;
+    }
+
+    // save the actual tensor data
+    for (size_t i = 0; i < tsData.coordinate.size(); i++)
+    {
+        for (size_t j = 0; j < tsData.coordinate[i].size(); j++)
+        {
+            out << tsData.coordinate[i][j] << " ";
+        }
+        out << tsData.data[i] << "\n";
+    }
+    out.close();
+    return true;
+}
+
+static bool ttx_tensor_data_save(const tsTensor& tensor, const tsTensorData& tsData, const string& filename)
+{
+    if (tsData.tfmt != "ttx") {
+        cout << "Unsupported file format save function called: " << tsData.tfmt << "\n";
+    }
+
+    ofstream out(filename);
+    if (!out) {
+        cerr << "Error: could not open file " << filename << endl;
+        LOG_WARN("Error: could not open file " + filename);
+        return false;
+    }
+
+    // save the header for the ttx
+    string header = "%%MatrixMarket tensor coordinate real general";
+    if (tsData.coordinate[0].size() == 2)
+    {
+        header = "%%MatrixMarket matrix coordinate real general";
+    }
+    out << header << "\n";
+
+    // save the shape of the tensor
+    for (int i = 0; i < tensor.shape.size(); i++)
+    {
+        out << tensor.shape[i] << " ";
+    }
+    out << "\n";
+
+    // save the actual tensor data
+    for (size_t i = 0; i < tsData.coordinate.size(); i++)
+    {
+        for (size_t j = 0; j < tsData.coordinate[i].size(); j++)
+        {
+            out << tsData.coordinate[i][j] << " ";
+        }
+        out << tsData.data[i] << "\n";
+    }
+    out.close();
+    return true;
+}
+
 /**
  * This function generate random tensor data for a given tensors and return the string of filenames for each tensors.
  * 
  * */
-vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix)
+vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix, string tfmt)
 {
     vector<string> datafile_names = {};
     random_device rd;
@@ -79,6 +146,7 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
         auto &tensor = tensors[i];
         // cout << tensor.name << endl;
         tsTensorData tsData;
+        tsData.tfmt = tfmt;
         vector<int> current_coordinate(tensor.shape.size());
         
         // LOG_DEBUG("Inserting data to tensor: " + std::string(1, tensor.name));
@@ -87,28 +155,22 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
         __fillTensorRecursive(tensor, tsData, current_coordinate, gen, insert_dist, 0);
 
         // build output file path
-        string filename = location + "/" + string(1,tensor.name) + (file_name_suffix == "" ? "" : "_") + file_name_suffix +".tns";
+        string filename = location + "/" + string(1,tensor.name) + (file_name_suffix == "" ? "" : "_") + file_name_suffix + "." + tfmt;
 
         // Write to file
-        ofstream out(filename);
-        if (!out) {
-            cerr << "Error: could not open file " << filename << endl;
-            LOG_WARN("Error: could not open file " + filename);
-            // file_name_suffix = (file_name_suffix == "") ? "_2" : (file_name_suffix+file_name_suffix);
-            continue;
-        }
-
-        // serialize
-        for (size_t i = 0; i < tsData.coordinate.size(); i++)
+        bool is_successful = false;
+        if (tfmt == "ttx") {
+            is_successful = ttx_tensor_data_save(tensor, tsData, filename);
+        } else if (tfmt == "tns")
         {
-            for (size_t j = 0; j < tsData.coordinate[i].size(); j++)
-            {
-                out << tsData.coordinate[i][j] << " ";
-            }
-            out << tsData.data[i] << "\n";
+            is_successful = tns_tensor_data_save(tensor, tsData, filename);
         }
 
-        out.close();
+        if (!is_successful) {
+            LOG_ERROR("Failed saving the tensor data file: " + filename);
+            break;
+        }
+        
         cout << "Saved tensor data: " << filename << endl;
         // LOG_INFO("Generated Tensor Data: "+  filename);
         datafile_names.push_back(filename);

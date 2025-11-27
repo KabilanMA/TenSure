@@ -102,6 +102,7 @@ typedef struct tsTensorData
     char tensorName;
     vector<vector<int>> coordinate;
     vector<double> data;
+    string tfmt;
 
     // Insert: update if coord exists, otherwise push new coord+value
     void insert(const std::vector<int>& coord, double value)
