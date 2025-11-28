@@ -176,7 +176,7 @@ int main(int argc, char* argv[]) {
                             [](unsigned char c) { 
                                 return std::tolower(c); 
                             });
-            if (user_tfmt != "tns" || user_tfmt != "ttx")
+            if (user_tfmt != "tns" && user_tfmt != "ttx")
             {
                 cerr << "Unsupported tensor storage format: " << user_tfmt << "\n";
             } else {
