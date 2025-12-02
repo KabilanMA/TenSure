@@ -4,11 +4,14 @@
 #include <map>
 #include <random>
 #include <algorithm>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <sstream>
+
 #include "tensure/formats.hpp"
 #include "tensure/utils.hpp"
 #include "tensure/logger.hpp"
-
-#include <iostream>
 
 using namespace std;
 
@@ -32,4 +35,4 @@ tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int m
 
 vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix, string tfmt);
 
-vector<string> mutate_equivalent_kernel(const fs::path& directory, const string& original_kernel_filename, MutationOperator mutation_operator, int max_mutants = -1);
+vector<string> mutate_equivalent_kernel(const fs::path& directory, const string& original_kernel_filename, int max_mutants = -1);

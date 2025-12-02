@@ -85,7 +85,9 @@ inline bool is_equal(const vector<TensorFormat>& fmt1, const vector<TensorFormat
 }
 
 enum MutationOperator {
-    SPARSITY = 0,
+    SPARSITY,
+    COMMUTATIVITY,
+    COUNT
 };
 
 typedef struct tsTensor
