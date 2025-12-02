@@ -59,7 +59,7 @@ int execute_finch_kernel(const fs::path &kernel_dir) {
   // Include the --project flag to use the Project.toml in the detected root
   // directory
   std::string command = "julia --project=" + project_root.string() + " " +
-                        eval_script.string() + " --dump " + json_path.string();
+                        eval_script.string() + ' ' + json_path.string() + " --dump";
 
   // std::cout << "Executing Finch kernel: " << command << std::endl;
   int ret = std::system(command.c_str());
