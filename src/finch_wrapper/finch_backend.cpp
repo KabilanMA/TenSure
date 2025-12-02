@@ -1,4 +1,6 @@
 #include "finch_wrapper/finch_backend.hpp"
+#include "finch_wrapper/executor.hpp"
+#include "finch_wrapper/generator.hpp"
 #include "tensure/utils.hpp"
 #include <filesystem>
 #include <iostream>
