@@ -42,8 +42,6 @@ list(FILTER FUZZER_SRC EXCLUDE REGEX ".*/finch_wrapper/.*") # exclude other back
 # Build main executable (no backend linkage)
 # ------------------------------
 add_executable(${PROJECT_NAME} ${FUZZER_SRC})
-# Removed hard dependency on build_externals for the main executable
-# add_dependencies(${PROJECT_NAME} build_externals)
 
 # Allow main executable to export symbols to plugins if needed
 set_target_properties(${PROJECT_NAME} PROPERTIES ENABLE_EXPORTS ON)
@@ -65,12 +63,6 @@ if(BUILD_TACO)
     add_library(taco_wrapper SHARED ${TACO_SRC})
 
     # TACO backend depends on building external TACO lib
-    add_dependencies(taco_wrapper build_externals)
-
-    target_include_directories(taco_wrapper PUBLIC
-        ${CMAKE_SOURCE_DIR}/include
-        ${TACO_DIR}/include
-    )
 
     # Try to locate libtaco.so automatically
     find_library(TACO_LIB taco PATHS
@@ -80,13 +72,44 @@ if(BUILD_TACO)
         /opt/taco/lib
     )
 
-    if(NOT TACO_LIB)
-        message(FATAL_ERROR "TACO library not found. Please set TACO_LIB manually.")
-    else()
-        message(STATUS "Found TACO library at ${TACO_LIB}")
-    endif()
+    set(TACO_INCLUDE_DIR ${TACO_DIR}/include)
+    set(TACO_BUILD_ROOT ${TACO_DIR}/build)
+    set(TACO_INSTALL_PREFIX ${TACO_BUILD_ROOT})
 
-    target_link_libraries(taco_wrapper PRIVATE ${TACO_LIB})
+    if(TACO_LIB)
+        message(STATUS "Found existing TACO library at ${TACO_LIB}")
+        target_link_libraries(taco_wrapper PRIVATE ${TACO_LIB})
+    else()
+        message(STATUS "TACO library not found. Configuring build from source...")
+        include(ExternalProject)
+        
+        if(APPLE)
+            set(LIB_EXT ".dylib")
+        else()
+            set(LIB_EXT ".so")
+        endif()
+        set(TACO_BUILT_LIB ${TACO_BUILD_ROOT}/lib/libtaco${LIB_EXT})
+        
+        ExternalProject_Add(taco_external
+            SOURCE_DIR ${TACO_DIR}
+            PREFIX ${TACO_BUILD_ROOT}/cmake_work
+            BINARY_DIR ${TACO_BUILD_ROOT}
+            CMAKE_ARGS
+                -DCMAKE_BUILD_TYPE=Release
+                -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
+            BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release -- -j${NPROC}
+            INSTALL_COMMAND ""
+        )
+        add_library(TacoLibUnknown SHARED IMPORTED)
+        set_target_properties(TacoLibUnknown PROPERTIES IMPORTED_LOCATION ${TACO_BUILT_LIB})
+
+        add_dependencies(TacoLibUnknown taco_external)
+        target_link_libraries(taco_wrapper PRIVATE TacoLibUnknown)
+    endif()
+    target_include_directories(taco_wrapper PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+        ${TACO_INCLUDE_DIR}
+    )
 endif()
 
 # ------------------------------
