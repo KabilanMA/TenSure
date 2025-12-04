@@ -32,6 +32,7 @@ TensorFormat random_format(mt19937& gen);
 
 
 tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int maxRank);
+tuple<vector<tsTensor>, std::string> generate_random_einsum(const std::string filename_suffix);
 
 vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, string location, string file_name_suffix, string tfmt);
 

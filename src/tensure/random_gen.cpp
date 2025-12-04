@@ -179,6 +179,123 @@ vector<string> generate_random_tensor_data(const vector<tsTensor>& tensors, stri
     return datafile_names;
 }
 
+// --- Helper: String Splitter ---
+vector<string> split_string(const string &s, char delimiter) {
+    vector<string> tokens;
+    string token;
+    istringstream tokenStream(s);
+    while (getline(tokenStream, token, delimiter)) {
+        if (!token.empty()) {
+            tokens.push_back(token);
+        }
+    }
+    return tokens;
+}
+
+string join_chars(const vector<char>& chars) {
+    string s = "";
+    for (size_t i = 0; i < chars.size(); ++i) {
+        s += chars[i];
+        if (i < chars.size() - 1) s += ",";
+    }
+    return s;
+}
+
+tuple<vector<tsTensor>, std::string> generate_random_einsum(std::string filename_suffix) 
+{
+    // Step 1: Read the file to get the Einsum string (e.g., "ij,jk->ik")
+    std::string filename = "/home/kabilan/Desktop/TenSure/external/grammarinator/examples/tests/test_" + filename_suffix + ".txt";
+    std::ifstream infile(filename);
+    if (!infile.is_open()) {
+        throw std::runtime_error("Could not open file: " + filename);
+    }
+
+    std::string line;
+    // Find first non-empty line
+    while (std::getline(infile, line)) {
+        // Remove whitespace
+        line.erase(remove_if(line.begin(), line.end(), ::isspace), line.end());
+        if (!line.empty()) break;
+    }
+    infile.close();
+
+    if (line.empty()) throw std::runtime_error("File is empty or invalid.");
+
+    // Step 2: Parse "ij,jk->ik"
+    size_t arrowPos = line.find("->");
+    if (arrowPos == string::npos) throw std::runtime_error("Invalid syntax: missing '->'");
+
+    string inputsPart = line.substr(0, arrowPos);
+    string outputPart = line.substr(arrowPos + 2);
+
+    vector<string> inputTokens = split_string(inputsPart, ',');
+
+    // Prepare RNG for formats (reusing your existing setup)
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    vector<tsTensor> tsTensors;
+
+    // --- Lambda to build a basic Tensor (Name + Indices + Formats) ---
+    // Note: We do NOT set shapes here yet, we do that in Step 5 using your helper
+    auto create_tensor_skeleton = [&](char name, string indices_str) -> tsTensor {
+        tsTensor t;
+        t.name = name;
+        
+        // Convert string "ij" to vector<char> {'i', 'j'}
+        for(char c : indices_str) t.idxs.push_back(c);
+
+        // Build string repr: "Name(i,j)"
+        t.str_repr = string(1, name) + "(" + join_chars(t.idxs) + ")";
+
+        // Assign Random Formats (Dense/Sparse)
+        for (size_t i = 0; i < t.idxs.size(); i++) {
+            t.storageFormat.push_back(random_format(gen));
+        }
+
+        return t;
+    };
+
+    // Step 3: Create Output Tensor (Always 'A')
+    tsTensor outputTensor = create_tensor_skeleton('A', outputPart);
+    tsTensors.push_back(outputTensor);
+
+    // Step 4: Create Input Tensors (B, C, ...)
+    string rhs_algebra = "";
+    char currentName = 'B';
+
+    for (size_t i = 0; i < inputTokens.size(); ++i) {
+        if (i > 0) rhs_algebra += " * ";
+        
+        tsTensor t = create_tensor_skeleton(currentName, inputTokens[i]);
+        rhs_algebra += t.str_repr;
+        
+        tsTensors.push_back(t);
+        currentName++;
+    }
+
+    string lhs_algebra = outputTensor.str_repr;
+    string full_algebra = lhs_algebra + " = " + rhs_algebra;
+
+    // Step 5: Build random shapes (EXACTLY REUSING YOUR EXISTING HELPERS)
+    // 1. Find unique indices across all tensors
+    vector<char> all_idxs = find_idxs(tsTensors);
+
+    // 2. Map indices to random dimension sizes
+    map<char, int> id_val_map = map_id_to_val(all_idxs);
+
+    // 3. Backfill the shape into the tensors
+    for (auto &tensor : tsTensors)
+    {
+        for (size_t i = 0; i < tensor.idxs.size(); i++)
+        {
+            tensor.shape.push_back(id_val_map[tensor.idxs[i]]);
+        }
+    }
+
+    return {tsTensors, full_algebra};
+}
+
 // DONE
 tuple<vector<tsTensor>, std::string> generate_random_einsum(int numInputs, int maxRank)
 {

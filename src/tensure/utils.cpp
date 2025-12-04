@@ -459,3 +459,145 @@ bool compare_outputs(const string& ref_output, const string& kernel_output, doub
 
     return true;
 }
+
+
+
+// Helper struct to hold parsed tensor data
+struct TensorInfo {
+    string name;
+    string full_expression; // For error logging
+    vector<char> indices;
+    bool isValidStructure;
+};
+
+// --- Helper: Remove all spaces from string ---
+string remove_spaces(string s) {
+    s.erase(remove_if(s.begin(), s.end(), ::isspace), s.end());
+    return s;
+}
+
+// --- Helper: Split string by delimiter ---
+vector<string> split(const string &s, char delimiter) {
+    vector<string> tokens;
+    string token;
+    istringstream tokenStream(s);
+    while (getline(tokenStream, token, delimiter)) {
+        if (!token.empty()) {
+            tokens.push_back(token);
+        }
+    }
+    return tokens;
+}
+
+// --- Helper: Parse a single tensor string "A(i,j)" ---
+TensorInfo parse_tensor(string token) {
+    TensorInfo info;
+    info.full_expression = token;
+    info.isValidStructure = false;
+
+    size_t openParen = token.find('(');
+    size_t closeParen = token.find(')');
+
+    // Check 1: Must have opening and closing parenthesis
+    if (openParen == string::npos || closeParen == string::npos || closeParen < openParen) {
+        return info;
+    }
+
+    // Check 2: Name must exist before parenthesis
+    info.name = token.substr(0, openParen);
+    if (info.name.empty()) return info;
+
+    // Check 3: Extract indices string
+    string content = token.substr(openParen + 1, closeParen - openParen - 1);
+    
+    // Split indices by comma
+    // Handle empty case "A()" -> Scalar
+    if (!content.empty()) {
+        vector<string> idx_tokens = split(content, ',');
+        for (const string& idx_s : idx_tokens) {
+            // In this specific format, we expect single char indices like 'i'
+            // If you accept "idx1", you need to change vector<char> to vector<string>
+            if (idx_s.length() != 1) { 
+                // Invalid: Index is not a single char
+                return info; 
+            }
+            info.indices.push_back(idx_s[0]);
+        }
+    }
+
+    info.isValidStructure = true;
+    return info;
+}
+
+// --- MAIN VALIDATION FUNCTION ---
+bool is_valid_einsum_equation(string equation) {
+    // 1. Clean String
+    string clean_eq = remove_spaces(equation);
+
+    // 2. Split into LHS (Output) and RHS (Inputs)
+    size_t eqPos = clean_eq.find('=');
+    if (eqPos == string::npos) {
+        cerr << "[Error] Missing '=' sign." << endl;
+        return false;
+    }
+
+    string lhs_str = clean_eq.substr(0, eqPos);
+    string rhs_str = clean_eq.substr(eqPos + 1);
+
+    if (lhs_str.empty() || rhs_str.empty()) {
+        cerr << "[Error] Empty LHS or RHS." << endl;
+        return false;
+    }
+
+    // 3. Parse Output Tensor
+    TensorInfo outputTensor = parse_tensor(lhs_str);
+    if (!outputTensor.isValidStructure) {
+        cerr << "[Error] Invalid Output Tensor Syntax: " << lhs_str << endl;
+        return false;
+    }
+
+    // 4. Parse Input Tensors (Separated by '*')
+    vector<string> input_tokens = split(rhs_str, '*');
+    vector<TensorInfo> inputTensors;
+    set<char> all_input_indices;
+
+    for (const string& t_str : input_tokens) {
+        TensorInfo t = parse_tensor(t_str);
+        if (!t.isValidStructure) {
+            cerr << "[Error] Invalid Input Tensor Syntax: " << t_str << endl;
+            return false;
+        }
+        
+        // Check for Repeated Indices within a single tensor (e.g., B(i,i))
+        // Standard Einsum allows this (trace), but based on your previous request
+        // you might want to forbid it. Remove this block if trace is allowed.
+        set<char> unique_check(t.indices.begin(), t.indices.end());
+        if (unique_check.size() != t.indices.size()) {
+            cerr << "[Error] Repeated index in tensor: " << t.name << endl;
+            return false;
+        }
+
+        // Add to list
+        inputTensors.push_back(t);
+        for (char c : t.indices) all_input_indices.insert(c);
+    }
+
+    // 5. Semantic Check: Output Subset Rule
+    // Every index in LHS must exist in RHS.
+    for (char c : outputTensor.indices) {
+        if (all_input_indices.find(c) == all_input_indices.end()) {
+            cerr << "[Error] Output index '" << c << "' not found in inputs." << endl;
+            return false;
+        }
+    }
+
+    // 6. Semantic Check: Output Unique Indices
+    // LHS should not have repeats: A(i,i) = ... is usually invalid for assignment
+    set<char> out_unique(outputTensor.indices.begin(), outputTensor.indices.end());
+    if (out_unique.size() != outputTensor.indices.size()) {
+        cerr << "[Error] Output tensor has repeated indices." << endl;
+        return false;
+    }
+
+    return true;
+}

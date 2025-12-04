@@ -225,14 +225,14 @@ int main(int argc, char* argv[]) {
     Logger::instance().setLogFile("./fuzzer.log");
     LOG_INFO("Fuzzer starting...");
     Logger::instance().setConsoleOnly(false);
-    cout << "Starting fuzz loop with seed=" << seed << " up to " << max_iterations << " iterations\n";
+    std::cout << "Starting fuzz loop with seed=" << seed << " up to " << max_iterations << " iterations\n";
     LOG_INFO("Starting fuzz loop with seed = " + to_string(seed) + " up to " + to_string(max_iterations) + " iterations");
 
     // Load backend plugin (target)
     PluginHandle target_ph;
     try {
         target_ph = load_plugin(backend_so);
-        cout << "Loaded backend: " << backend_so << "\n";
+        std::cout << "Loaded backend: " << backend_so << "\n";
         LOG_INFO("Loaded backend: " + backend_so);
     } catch (const std::exception &e) {
         cerr << "Failed to load backend " << backend_so << ": " << e.what() << "\n";
@@ -250,7 +250,7 @@ int main(int argc, char* argv[]) {
             ref_ph = load_plugin(ref_backend_so);
             ref_backend = ref_ph.inst;
             ref_is_separate = true;
-            cout << "Loaded ref backend: " << ref_backend_so << "\n";
+            std::cout << "Loaded ref backend: " << ref_backend_so << "\n";
             LOG_INFO("Loaded ref backend: " + ref_backend_so);
         } catch (const std::exception &e) {
             cerr << "Failed to load ref backend " << ref_backend_so << ": " << e.what() << "\n";
@@ -261,11 +261,15 @@ int main(int argc, char* argv[]) {
     } else {
         ref_backend = target_backend; // use same implementation as trusted one if none provided
         LOG_WARN("No separate ref backend provided — using target backend as reference.");
-        cout << "No separate ref backend provided — using target backend as reference.\n";
+        std::cout << "No separate ref backend provided — using target backend as reference.\n";
     }
 
     // Main fuzz loop
+    // int valid = 0;
+    // int taco_runnable = 0;
+    // int taco_errors = 0;
     for (size_t iter = 0; iter < max_iterations && !g_terminate; ++iter) {
+        bool valid_einsum = false;
         try {
             string iter_id = "iter_" + to_string(iter) + "_" + timestamp_str();
             LOG_INFO("Starting Fuzzing Loop: " + iter_id);
@@ -279,6 +283,13 @@ int main(int argc, char* argv[]) {
             std::mt19937 gen(rd());
             std::uniform_int_distribution<int> dist_tensor_count(2, 5);
             auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(gen), 6);
+            // auto [tensors, einsum] = generate_random_einsum(to_string(iter));
+
+            // if (is_valid_einsum_equation(einsum)) { 
+            //     valid++;
+            //     valid_einsum = true;
+            // }
+
 
             LOG_INFO("Generated Random Einsum: " + einsum);
             // 2) Generate and store data for tensors
@@ -294,6 +305,7 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             
+            // vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 0);
             vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 10);
             LOG_INFO("Generated " + to_string(mutated_file_names.size() - 1) + " Equivalent Mutants.");
 
@@ -331,6 +343,12 @@ int main(int argc, char* argv[]) {
                 archive_failure_case(iter_dir.stem().string(), (iter_dir)/"backend_kernel"/"kernel", fail_dir / "crash", message);
                 continue;
             }
+            // if (!valid_einsum) {
+            //     // LOG_INFO("TACO should not have executed invalid einsum: " + einsum);
+            //     taco_errors++;
+            // }
+            // taco_runnable++;
+            // continue;
 
 
             // reference execution successfully executed
@@ -380,7 +398,7 @@ int main(int argc, char* argv[]) {
             if (iter % 100 == 0) {
                 LOG_INFO("Completed iteration " + to_string(iter));
                 LOG_INFO("Iteration directory: " + iter_dir.string());
-                cout << "Iteration " << iter << " OK. Saved to " << iter_dir << endl;
+                std::cout << "Iteration " << iter << " OK. Saved to " << iter_dir << endl;
             }
         } catch (const std::exception &e) {
             cerr << "Exception in iteration " << iter << ": " << e.what() << std::endl;
@@ -393,7 +411,9 @@ int main(int argc, char* argv[]) {
         // break;
     }
 
-    cout << "Fuzzing loop finished (terminated=" << g_terminate << ")\n";
+    std::cout << "Fuzzing loop finished (terminated=" << g_terminate << ")\n";
+    // std::cout << "Valid Einsums: " << valid << "\nTACO Runnable Einsums: " << taco_runnable << "\n" << "TACO Errors on Valid Einsums: " << taco_errors << "\n";
+    LOG_INFO("Fuzzing loop finished (terminated=" + to_string(g_terminate));
 
     // unload plugins
     unload_plugin(target_ph);

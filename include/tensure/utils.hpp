@@ -114,3 +114,6 @@ bool compare_outputs(const string& ref_output, const string& kernel_output, doub
 
 
 vector<vector<string>> generate_all_formats(int rank);
+
+
+bool is_valid_einsum_equation(string equation);
