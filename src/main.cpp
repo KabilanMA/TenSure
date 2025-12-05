@@ -11,10 +11,11 @@
 #include <memory>
 #include <dlfcn.h>
 #include <future>
-#include "tensure/logger.hpp"
 
+#include "tensure/logger.hpp"
 #include "tensure/random_gen.hpp"                // your generator helpers (tsTensor, etc.)
 #include "backends/backend_interface.hpp"       // FuzzBackend interface
+#include "tensure/ThreadPool.hpp"
 
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
@@ -25,6 +26,9 @@ void signal_handler(int signum) {
     std::cerr << "Signal " << signum << " received. Will terminate after current iteration.\n";
     g_terminate = true;
 }
+
+// Global counter to track fuzzing progress across all threads
+std::atomic<size_t> g_completed_runs = 0;
 
 // timestamp helper (kept from your original)
 std::string timestamp_str() {
@@ -154,6 +158,132 @@ void archive_failure_case(const fs::path &dir_name, const fs::path &kernel_dir, 
     }
 }
 
+/**
+ * @brief The core fuzzing task executed by a single worker thread.
+ */
+void FuzzingJob(size_t iter, FuzzBackend* target_backend, FuzzBackend* ref_backend, std::mt19937::result_type seed_offset, fs::path& out_root, const std::string& tensor_file_format, const uint64_t executor_timeout_ms
+    ) {
+    // 1. Create a thread-local RNG based on the global seed offset
+    std::mt19937 local_rng(seed_offset + iter);
+    
+    // The distributed is kept local to ensure each thread uses fresh randomness
+    std::uniform_int_distribution<int> dist_tensor_count(2, 5);
+    
+    try {
+        if (g_terminate) return;
+
+        std::string iter_id = "iter_" + std::to_string(iter) + "_" + timestamp_str();
+        LOG_INFO("Starting Fuzzing Job: " + iter_id);
+        
+        // Define paths
+        fs::path iter_dir = out_root / "corpus" / iter_id;
+        fs::path fail_dir = out_root / "failures";
+        fs::path iter_data_dir = iter_dir / "data";
+        fs::create_directories(iter_dir);
+        fs::create_directories(iter_data_dir);
+
+        // 1) Generate random kernel specification
+        auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(local_rng), 6);
+        
+        LOG_INFO("Generated Random Einsum: " + einsum);
+        
+        // 2) Generate and store data for tensors
+        std::vector<std::string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "", tensor_file_format);
+
+        if (datafile_names.size() != tensors.size() - 1) { 
+            LOG_ERROR("Tensor data generation failed for job: " + iter_id);
+            g_completed_runs++;
+            return;
+        }
+
+        // Generate Reference Kernel (using the ref_backend)
+        if (!generate_ref_kernel(tensors, {einsum}, datafile_names, (iter_dir / "kernel.json").string())) {
+            LOG_WARN("Reference Backend Kernel Generation Failed.");
+            g_completed_runs++;
+            return;
+        }
+
+        // Generate Mutants
+        // We reuse the existing logic which mutates the kernel.json file directly
+        vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 10);
+        LOG_INFO("Generated " + to_string(mutated_file_names.size() - 1) + " Equivalent Mutants.");
+
+        // 4) Run reference executor (trusted) once to produce expected outputs
+        uint64_t timeout = executor_timeout_ms; // Use CLI-defined timeout
+        fs::path ref_out_dir = iter_data_dir / "ref_out";
+        fs::create_directories(ref_out_dir);
+        
+        // Use the generated reference kernel path
+        string ref_kernel_filename = (iter_dir / "kernel.json").string();
+
+        int ref_result = run_with_timeout(ref_backend, ref_kernel_filename, ref_out_dir.string(), timeout);
+
+        if (ref_result != 0) {
+            std::string message;
+            if (ref_result == -2) message = "Reference Kernel execution timed out";
+            else message = "Reference Kernel execution failed with code " + to_string(ref_result);
+            
+            LOG_INFO("Reference Kernel crash/timeout: " + iter_id);
+            archive_failure_case(iter_dir.stem().string(), iter_dir / "kernel", fail_dir / "ref_crash", message);
+            g_completed_runs++;
+            return; 
+        }
+
+        // 5) Run target on each mutant and compare outputs
+        LOG_INFO("Running mutants...");
+        
+        // Path to the reference result output file
+        string ref_out_file = (ref_out_dir / "results.tns").string();
+        
+        for (size_t mi = 1; mi < mutated_file_names.size() && !g_terminate; ++mi) {
+            fs::path mutant_path = iter_dir / mutated_file_names[mi]; // mutant file name
+            fs::path mutant_out_dir = mutant_path.parent_path() / ("mut_out_" + to_string(mi));
+            fs::create_directories(mutant_out_dir);
+            
+            // Run target backend on the mutated kernel
+            int result = run_with_timeout(target_backend, mutant_path.string(), mutant_out_dir.string(), timeout);
+            
+            if (result != 0) {
+                // Crashing bug or timeout
+                if (result == -2) {
+                    // Timeout: Increase timeout and retry this mutant
+                    timeout += 4000;
+                    mi--; // Decrement to retry the current mutant
+                    continue;
+                }
+                // Actual Crashing Bug
+                LOG_INFO("CRASHING BUG FOUND IN MUTANT " + to_string(mi) + " of " + iter_id);
+                archive_failure_case(iter_id, mutant_path.parent_path(), fail_dir / "crash", "Mutated Kernel execution failed with code " + to_string(result));
+                break; 
+            } 
+            
+            // Compare the results for a wrong code bug
+            string mutant_out_file = mutant_out_dir / "results.tns";
+            bool equal = target_backend->compare_results(ref_out_file, mutant_out_file);
+            
+            if (!equal) {
+                LOG_INFO("WRONG CODE BUG FOUND IN MUTANT " + to_string(mi) + " of " + iter_id);
+                archive_failure_case(iter_id, mutant_path.parent_path(), fail_dir / "wc", "Mutated Kernel produced incorrect results.");
+                break; 
+            }
+        }
+        
+        // Logging for progress
+        if (iter % 100 == 0) {
+            LOG_INFO("Completed iteration " + to_string(iter));
+            std::cout << "Iteration " << iter << " OK. Runs/sec: " << (g_completed_runs.load() / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) << endl;
+        }
+
+    } catch (const std::exception &e) {
+        // Exception in the fuzzing pipeline (e.g., file system error, generator failure)
+        cerr << "Exception in iteration " << iter << ": " << e.what() << std::endl;
+        LOG_ERROR("Pipeline exception in iter " + std::to_string(iter) + ": " + e.what());
+    }
+    
+    // Always increment the global counter at the end of the job
+    g_completed_runs++;
+}
+
 // ---------- Program entry ----------
 int main(int argc, char* argv[]) {
     // CLI: minimal arg parsing for backend selection
@@ -264,152 +394,188 @@ int main(int argc, char* argv[]) {
         std::cout << "No separate ref backend provided — using target backend as reference.\n";
     }
 
+    const size_t num_threads = std::thread::hardware_concurrency();
+    size_t actual_threads = (num_threads == 0) ? 4 : num_threads;
+    std::cout << "Starting Thread Pool with " << actual_threads << " workers.\n";
+
+    ThreadPool pool(actual_threads);
+
+    // The Producer Loop: Queues tasks up to max_iterations
+    for (size_t iter = 0; iter < max_iterations && !g_terminate; ++iter) {
+        
+        // Enqueue the fuzzing job (wrapped in a lambda)
+        // We capture shared read-only pointers and config by value/reference.
+        // We pass the RNG seed offset (iter) instead of the RNG object itself.
+        pool.enqueue([=, &out_root]() mutable {
+            FuzzingJob(iter, target_backend, ref_backend, rng(), out_root, tensor_file_format, executor_timeout_ms);
+        });
+
+        // Throttle the producer if too far ahead (optional, but prevents massive queueing if workers are slow)
+        // Check if the number of tasks in the queue exceeds a safe threshold (e.g., 2x threads)
+        if (iter > actual_threads * 2 && g_completed_runs.load() < iter - actual_threads) {
+             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    std::cout << "All fuzzing jobs successfully queued.\n";
+
+    // Monitoring Loop (Kept as is)
+    size_t last_count = 0;
+    while (g_completed_runs < max_iterations && !g_terminate) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        size_t current_count = g_completed_runs.load();
+        size_t rate = (current_count - last_count) / 2;
+        std::cout << "Progress: " << current_count << " / " << max_iterations 
+                  << " | Rate: " << rate << " runs/sec\n";
+        last_count = current_count;
+    }
+
     // Main fuzz loop
     // int valid = 0;
     // int taco_runnable = 0;
     // int taco_errors = 0;
-    for (size_t iter = 0; iter < max_iterations && !g_terminate; ++iter) {
-        bool valid_einsum = false;
-        try {
-            string iter_id = "iter_" + to_string(iter) + "_" + timestamp_str();
-            LOG_INFO("Starting Fuzzing Loop: " + iter_id);
-            fs::path iter_dir = corpus_dir / iter_id;
-            fs::path iter_data_dir = iter_dir / "data";
-            fs::create_directories(iter_dir);
-            fs::create_directories(iter_data_dir);
+    // for (size_t iter = 0; iter < max_iterations && !g_terminate; ++iter) {
+    //     bool valid_einsum = false;
+    //     try {
+    //         string iter_id = "iter_" + to_string(iter) + "_" + timestamp_str();
+    //         LOG_INFO("Starting Fuzzing Loop: " + iter_id);
+    //         fs::path iter_dir = corpus_dir / iter_id;
+    //         fs::path iter_data_dir = iter_dir / "data";
+    //         fs::create_directories(iter_dir);
+    //         fs::create_directories(iter_data_dir);
 
-            // 1) Generate random kernel specification (einsum equations + tensor meta)
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<int> dist_tensor_count(2, 5);
-            auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(gen), 6);
-            // auto [tensors, einsum] = generate_random_einsum(to_string(iter));
+    //         // 1) Generate random kernel specification (einsum equations + tensor meta)
+    //         std::random_device rd;
+    //         std::mt19937 gen(rd());
+    //         std::uniform_int_distribution<int> dist_tensor_count(2, 5);
+    //         auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(gen), 6);
+    //         // auto [tensors, einsum] = generate_random_einsum(to_string(iter));
 
-            // if (is_valid_einsum_equation(einsum)) { 
-            //     valid++;
-            //     valid_einsum = true;
-            // }
+    //         // if (is_valid_einsum_equation(einsum)) { 
+    //         //     valid++;
+    //         //     valid_einsum = true;
+    //         // }
 
 
-            LOG_INFO("Generated Random Einsum: " + einsum);
-            // 2) Generate and store data for tensors
-            vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "", tensor_file_format);
-            // check whether we got data for all input tensors.
-            if (datafile_names.size() != tensors.size() - 1)  { // -1 to restrict the input tensor
-                LOG_ERROR("Tensor data generation failed for fuzzing iteration: " + iter_id);
-                continue;
-            }
-            if (!generate_ref_kernel(tensors, {einsum}, datafile_names, (iter_dir / "kernel.json").string()))
-            {
-                LOG_WARN("Backend Kernel Generation Failed: " + backend_so);
-                continue;
-            }
+    //         LOG_INFO("Generated Random Einsum: " + einsum);
+    //         // 2) Generate and store data for tensors
+    //         vector<string> datafile_names = generate_random_tensor_data(tensors, iter_data_dir, "", tensor_file_format);
+    //         // check whether we got data for all input tensors.
+    //         if (datafile_names.size() != tensors.size() - 1)  { // -1 to restrict the input tensor
+    //             LOG_ERROR("Tensor data generation failed for fuzzing iteration: " + iter_id);
+    //             continue;
+    //         }
+    //         if (!generate_ref_kernel(tensors, {einsum}, datafile_names, (iter_dir / "kernel.json").string()))
+    //         {
+    //             LOG_WARN("Backend Kernel Generation Failed: " + backend_so);
+    //             continue;
+    //         }
             
-            // vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 0);
-            vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 10);
-            LOG_INFO("Generated " + to_string(mutated_file_names.size() - 1) + " Equivalent Mutants.");
+    //         // vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 0);
+    //         vector<string> mutated_file_names = mutate_equivalent_kernel(iter_dir, "kernel.json", 10);
+    //         LOG_INFO("Generated " + to_string(mutated_file_names.size() - 1) + " Equivalent Mutants.");
 
-            // 3) Generate backend-specific kernel
-            fs::path backend_kernel = iter_dir / "backend_kernel"; // plugin decides extension/format
-            fs::create_directories(backend_kernel);
-            bool gen_ok = target_backend->generate_kernel(mutated_file_names, backend_kernel);
-            if (!gen_ok) {
-                cerr << "generate_kernel failed for iter " << iter_id << "\n";
-                LOG_WARN("generate_kernel failed for iter " + iter_id + " to generate mutated backend kernels.");
-                continue;
-            }
+    //         // 3) Generate backend-specific kernel
+    //         fs::path backend_kernel = iter_dir / "backend_kernel"; // plugin decides extension/format
+    //         fs::create_directories(backend_kernel);
+    //         bool gen_ok = target_backend->generate_kernel(mutated_file_names, backend_kernel);
+    //         if (!gen_ok) {
+    //             cerr << "generate_kernel failed for iter " << iter_id << "\n";
+    //             LOG_WARN("generate_kernel failed for iter " + iter_id + " to generate mutated backend kernels.");
+    //             continue;
+    //         }
 
-            // 4) Run reference executor (trusted) once to produce expected outputs
-            uint64_t timeout = 8000;
-            fs::path ref_out_dir = iter_data_dir / "ref_out";
-            fs::create_directories(ref_out_dir);
-            string ref_kernel_filename = (backend_kernel / "kernel/backend_kernel.cpp");
-            int result = run_with_timeout(target_backend, ref_kernel_filename, "", timeout);
+    //         // 4) Run reference executor (trusted) once to produce expected outputs
+    //         uint64_t timeout = 8000;
+    //         fs::path ref_out_dir = iter_data_dir / "ref_out";
+    //         fs::create_directories(ref_out_dir);
+    //         string ref_kernel_filename = (backend_kernel / "kernel/backend_kernel.cpp");
+    //         int result = run_with_timeout(target_backend, ref_kernel_filename, "", timeout);
 
-            if (result!=0)
-            {
-                // most likely a crashing code bug
-                // report the crashing code bug
-                std::string message;
-                if (result == -2)
-                {
-                    message = "Reference Kernel execution timed out (code " + to_string(result) + ")";
-                    LOG_INFO("Reference Kernel execution timed out in " + iter_id);
-                } else {
-                    message = "Refernce Kernel execution failed with (code " + to_string(result) + ")";
-                    LOG_INFO("Reference Kernel execution failed in " + iter_id);
-                }
+    //         if (result!=0)
+    //         {
+    //             // most likely a crashing code bug
+    //             // report the crashing code bug
+    //             std::string message;
+    //             if (result == -2)
+    //             {
+    //                 message = "Reference Kernel execution timed out (code " + to_string(result) + ")";
+    //                 LOG_INFO("Reference Kernel execution timed out in " + iter_id);
+    //             } else {
+    //                 message = "Refernce Kernel execution failed with (code " + to_string(result) + ")";
+    //                 LOG_INFO("Reference Kernel execution failed in " + iter_id);
+    //             }
 
-                archive_failure_case(iter_dir.stem().string(), (iter_dir)/"backend_kernel"/"kernel", fail_dir / "crash", message);
-                continue;
-            }
-            // if (!valid_einsum) {
-            //     // LOG_INFO("TACO should not have executed invalid einsum: " + einsum);
-            //     taco_errors++;
-            // }
-            // taco_runnable++;
-            // continue;
+    //             archive_failure_case(iter_dir.stem().string(), (iter_dir)/"backend_kernel"/"kernel", fail_dir / "crash", message);
+    //             continue;
+    //         }
+    //         // if (!valid_einsum) {
+    //         //     // LOG_INFO("TACO should not have executed invalid einsum: " + einsum);
+    //         //     taco_errors++;
+    //         // }
+    //         // taco_runnable++;
+    //         // continue;
 
 
-            // reference execution successfully executed
-            // run the mutations
-            // 5) Run target on each mutant and compare outputs
-            LOG_INFO("Running mutants...");
-            for (size_t mi = 1; mi < mutated_file_names.size() && !g_terminate; ++mi) {
-                fs::path mutant_path = backend_kernel / ("kernel" + to_string(mi)) / "backend_kernel.cpp";
-                int result = run_with_timeout(target_backend, mutant_path.string(), "", timeout);
-                if (result !=0) {
-                    // crashing bug or timeout
-                    if (result == -2) {
-                        // timeout
-                        mi--;
-                        timeout += 4000;
-                        continue;
-                    }
-                    // crashing bug
-                    LOG_INFO("ACTUAL CRASHING BUG FOUND IN " + iter_id);
-                    // archive the bug and break this iteration.
-                    archive_failure_case(iter_dir.stem().string(), mutant_path.parent_path(), fail_dir / "crash", "Mutated Kernel execution failed with (code " + to_string(result) + ")");
-                    break; // don't break, if you want to check whether the remaining mutants also can find any other bugs.
-                } else {
-                    // compare the results for a wrong code bug
-                    string ref_out_file = (iter_data_dir / "ref_out" / "results.tns").string();
-                    string mutant_out_file = mutant_path.parent_path() / "results.tns";
-                    bool equal = target_backend->compare_results(ref_out_file, mutant_out_file);
-                    if (!equal) {
-                        LOG_INFO("WRONG CODE BUG FOUND IN " + iter_id);
-                        // archive the bug and break this iteration.
-                        archive_failure_case(iter_dir.stem().string(), mutant_path.parent_path(), fail_dir / "wc", "Mutated Kernel produced incorrect results.");
-                        break; // don't break, if you want to check whether the remaining mutants also can find any other bugs.
-                    }
-                }
-            }
+    //         // reference execution successfully executed
+    //         // run the mutations
+    //         // 5) Run target on each mutant and compare outputs
+    //         LOG_INFO("Running mutants...");
+    //         for (size_t mi = 1; mi < mutated_file_names.size() && !g_terminate; ++mi) {
+    //             fs::path mutant_path = backend_kernel / ("kernel" + to_string(mi)) / "backend_kernel.cpp";
+    //             int result = run_with_timeout(target_backend, mutant_path.string(), "", timeout);
+    //             if (result !=0) {
+    //                 // crashing bug or timeout
+    //                 if (result == -2) {
+    //                     // timeout
+    //                     mi--;
+    //                     timeout += 4000;
+    //                     continue;
+    //                 }
+    //                 // crashing bug
+    //                 LOG_INFO("ACTUAL CRASHING BUG FOUND IN " + iter_id);
+    //                 // archive the bug and break this iteration.
+    //                 archive_failure_case(iter_dir.stem().string(), mutant_path.parent_path(), fail_dir / "crash", "Mutated Kernel execution failed with (code " + to_string(result) + ")");
+    //                 break; // don't break, if you want to check whether the remaining mutants also can find any other bugs.
+    //             } else {
+    //                 // compare the results for a wrong code bug
+    //                 string ref_out_file = (iter_data_dir / "ref_out" / "results.tns").string();
+    //                 string mutant_out_file = mutant_path.parent_path() / "results.tns";
+    //                 bool equal = target_backend->compare_results(ref_out_file, mutant_out_file);
+    //                 if (!equal) {
+    //                     LOG_INFO("WRONG CODE BUG FOUND IN " + iter_id);
+    //                     // archive the bug and break this iteration.
+    //                     archive_failure_case(iter_dir.stem().string(), mutant_path.parent_path(), fail_dir / "wc", "Mutated Kernel produced incorrect results.");
+    //                     break; // don't break, if you want to check whether the remaining mutants also can find any other bugs.
+    //                 }
+    //             }
+    //         }
 
-            // Not Completed
-            // // 6) Save passing case to corpus for future shrinking/replay (copy iter_data_dir -> corpus)
-            // for (auto &entry : fs::directory_iterator(iter_data_dir)) {
-            //     fs::path dest = iter_dir / entry.path().filename();
-            //     if (fs::is_directory(entry.path()))
-            //         fs::copy(entry.path(), dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
-            //     else
-            //         fs::copy_file(entry.path(), dest, fs::copy_options::overwrite_existing);
-            // }
+    //         // Not Completed
+    //         // // 6) Save passing case to corpus for future shrinking/replay (copy iter_data_dir -> corpus)
+    //         // for (auto &entry : fs::directory_iterator(iter_data_dir)) {
+    //         //     fs::path dest = iter_dir / entry.path().filename();
+    //         //     if (fs::is_directory(entry.path()))
+    //         //         fs::copy(entry.path(), dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+    //         //     else
+    //         //         fs::copy_file(entry.path(), dest, fs::copy_options::overwrite_existing);
+    //         // }
 
-            if (iter % 100 == 0) {
-                LOG_INFO("Completed iteration " + to_string(iter));
-                LOG_INFO("Iteration directory: " + iter_dir.string());
-                std::cout << "Iteration " << iter << " OK. Saved to " << iter_dir << endl;
-            }
-        } catch (const std::exception &e) {
-            cerr << "Exception in iteration " << iter << ": " << e.what() << std::endl;
-            try {
-                string iter_id = "iter_except_" + to_string(iter) + "_" + timestamp_str();
-                fs::path except_dir = fail_dir / iter_id;
-                fs::create_directories(except_dir);
-            } catch (...) {}
-        }
-        // break;
-    }
+    //         if (iter % 100 == 0) {
+    //             LOG_INFO("Completed iteration " + to_string(iter));
+    //             LOG_INFO("Iteration directory: " + iter_dir.string());
+    //             std::cout << "Iteration " << iter << " OK. Saved to " << iter_dir << endl;
+    //         }
+    //     } catch (const std::exception &e) {
+    //         cerr << "Exception in iteration " << iter << ": " << e.what() << std::endl;
+    //         try {
+    //             string iter_id = "iter_except_" + to_string(iter) + "_" + timestamp_str();
+    //             fs::path except_dir = fail_dir / iter_id;
+    //             fs::create_directories(except_dir);
+    //         } catch (...) {}
+    //     }
+    //     // break;
+    // }
 
     std::cout << "Fuzzing loop finished (terminated=" << g_terminate << ")\n";
     // std::cout << "Valid Einsums: " << valid << "\nTACO Runnable Einsums: " << taco_runnable << "\n" << "TACO Errors on Valid Einsums: " << taco_errors << "\n";

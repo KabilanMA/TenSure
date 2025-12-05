@@ -37,11 +37,23 @@ include_directories(
 file(GLOB_RECURSE FUZZER_SRC ${CMAKE_SOURCE_DIR}/src/*.cpp)
 list(FILTER FUZZER_SRC EXCLUDE REGEX ".*/taco_wrapper/.*")  # exclude backend .cpp files
 list(FILTER FUZZER_SRC EXCLUDE REGEX ".*/finch_wrapper/.*") # exclude other backends
+list(APPEND FUZZER_SRC ${CMAKE_SOURCE_DIR}/src/tensure/ThreadPool.cpp) # Find the ThreadPool implementation file
+
 
 # ------------------------------
 # Build main executable (no backend linkage)
 # ------------------------------
 add_executable(${PROJECT_NAME} ${FUZZER_SRC})
+
+# Add dependencies for the multi-threaded fuzzer
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    # For std::thread, std::mutex, etc. (required by ThreadPool)
+    pthread
+    # For dlopen, dlsym, etc. (required by plugin loader in fuzzer_main.cpp)
+    dl
+    # For std::filesystem
+    stdc++fs
+)
 
 # Allow main executable to export symbols to plugins if needed
 set_target_properties(${PROJECT_NAME} PROPERTIES ENABLE_EXPORTS ON)
