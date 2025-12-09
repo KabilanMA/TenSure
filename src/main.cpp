@@ -32,6 +32,7 @@ std::atomic<size_t> g_completed_runs = 0;
 std::atomic<size_t> g_ref_crash_count = 0;
 std::atomic<size_t> g_crash_bug_count = 0;
 std::atomic<size_t> g_wrong_code_count = 0;
+std::atomic<size_t> g_valid_einsum_count = 0;
 
 // timestamp helper (kept from your original)
 std::string timestamp_str() {
@@ -208,6 +209,11 @@ void FuzzingJob(size_t iter, FuzzBackend* target_backend, std::mt19937::result_t
 
         // Generate random kernel specification
         auto [tensors, einsum] = generate_random_einsum(dist_tensor_count(local_rng), 6);
+        // auto [tensors, einsum] = generate_random_einsum(to_string(iter));
+        // if (!is_valid_einsum_equation(einsum)) {
+        //     return;
+        // }
+        // g_valid_einsum_count++;
         
         LOG_INFO("Generated Random Einsum: " + einsum);
         
@@ -257,8 +263,8 @@ void FuzzingJob(size_t iter, FuzzBackend* target_backend, std::mt19937::result_t
             if (ref_result == -2) message = "Reference Kernel execution timed out";
             else message = "Reference Kernel execution failed with code " + to_string(ref_result);
             
-            LOG_INFO("Reference Kernel crash/timeout: " + iter_id);
-            // archive_failure_case(iter_dir.stem().string(), iter_dir / "kernel", fail_dir / "ref_crash", message);
+            LOG_INFO(message + ": " + iter_id);
+            archive_failure_case(iter_dir.stem().string(), iter_dir / "kernel", fail_dir / "ref_crash", message);
             return; 
         }
 
@@ -285,7 +291,7 @@ void FuzzingJob(size_t iter, FuzzBackend* target_backend, std::mt19937::result_t
                 // Actual Crashing Bug
                 g_crash_bug_count++;
                 LOG_INFO("CRASHING BUG FOUND IN MUTANT " + to_string(mi) + " of " + iter_id);
-                // archive_failure_case(iter_id, mutant_path.parent_path(), fail_dir / "crash", "Mutated Kernel execution failed with code " + to_string(result));
+                archive_failure_case(iter_id, mutant_path.parent_path(), fail_dir / "crash", "Mutated Kernel execution failed with code " + to_string(result));
                 break; // don't break, if you want to check whether other mutants also induce bugs
             } 
             
@@ -297,7 +303,7 @@ void FuzzingJob(size_t iter, FuzzBackend* target_backend, std::mt19937::result_t
             if (!equal) {
                 LOG_INFO("WRONG CODE BUG FOUND IN MUTANT " + to_string(mi) + " of " + iter_id);
                 g_wrong_code_count++;
-                // archive_failure_case(iter_id, mutant_path.parent_path(), fail_dir / "wc", "Mutated Kernel produced incorrect results.");
+                archive_failure_case(iter_id, mutant_path.parent_path(), fail_dir / "wc", "Mutated Kernel produced incorrect results.");
                 break; // don't break, if you want to check whether other mutants also induce bugs
             }
         }
@@ -361,7 +367,7 @@ int main(int argc, char* argv[]) {
 
     // Configurable parameters
     uint64_t seed = 42;
-    size_t max_iterations = 1000;
+    size_t max_iterations = 1000000000;
     fs::path out_root = "fuzz_output";
     fs::path fail_dir = out_root / "failures";
     fs::path corpus_dir = out_root / "corpus";
@@ -424,15 +430,20 @@ int main(int argc, char* argv[]) {
     // Monitoring Loop (Kept as is)
     size_t last_count = 0;
     while (g_completed_runs < max_iterations && !g_terminate) {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         size_t current_count = g_completed_runs.load();
-        size_t rate = (current_count - last_count) / 2;
+        size_t rate = (current_count - last_count) / 10;
         std::cout << "Progress: " << current_count << " / " << max_iterations 
                   << " | Rate: " << rate << " runs/sec\n";
         last_count = current_count;
     }
 
     std::cout << "Fuzzing loop finished (terminated=" << g_terminate << ")\n";
+    LOG_INFO("Total fuzzing iteration: " + to_string(g_completed_runs));
+    LOG_INFO("Total reference program crash iteration: " + to_string(g_ref_crash_count));
+    LOG_INFO("Total Crashing bugs: " + to_string(g_crash_bug_count));
+    LOG_INFO("Total Wrong Code bugs: " + to_string(g_wrong_code_count));
+    LOG_INFO("Total Valid Einsum Generated: " + to_string(g_valid_einsum_count));
     LOG_INFO("Fuzzing loop finished (terminated=" + to_string(g_terminate));
 
     // unload plugins
