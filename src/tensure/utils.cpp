@@ -400,32 +400,62 @@ bool compare_outputs(const string& ref_output, const string& kernel_output, doub
         }
 
         string line;
-        while(getline(file, line)) {
+        bool read_dims = false;
+
+        while (getline(file, line)) {
             if (line.empty()) continue;
 
+            // Skip comments
+            if (line[0] == '%') continue;
+
+            // First non-comment line = dimension line → skip it
+            if (!read_dims) {
+                read_dims = true;
+                continue;
+            }
+
+            // Now everything else should be data
             istringstream iss(line);
             vector<string> toks;
             string tok;
 
-            while (iss >> tok) {
+            while (iss >> tok)
                 toks.push_back(tok);
+
+            // Need at least 1 coord + value
+            if (toks.size() < 2)
+                continue;  // ignore malformed line
+
+            // Parse value
+            double val = 0.0;
+            try {
+                val = std::stod(toks.back());
+            } catch (...) {
+                continue; // skip garbage line
             }
 
-            if (toks.size() < 2)
-                continue;
-            
-            double val = std::stod(toks.back());
+            // Skip zero entries
             if (val == 0.0)
                 continue;
-            
+
+            // Parse coordinates
             vector<int> coords;
             coords.reserve(toks.size() - 1);
 
+            bool bad_coord = false;
             for (size_t i = 0; i + 1 < toks.size(); ++i) {
-                coords.push_back(std::stoi(toks[i]));
+                try {
+                    coords.push_back(std::stoi(toks[i]));
+                } catch (...) {
+                    bad_coord = true;
+                    break;
+                }
             }
 
-            data.emplace(move(coords), val);
+            if (bad_coord)
+                continue;
+
+            data.emplace(std::move(coords), val);
         }
 
         return data;

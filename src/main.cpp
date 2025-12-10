@@ -314,10 +314,20 @@ void FuzzingJob(size_t iter, FuzzBackend* target_backend, std::mt19937::result_t
             std::cout << "Iteration " << iter << " OK. Runs/sec: " << (g_completed_runs.load() / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) << endl;
         }
 
-    } catch (const std::exception &e) {
-        // Exception in the fuzzing pipeline (e.g., file system error, generator failure)
-        cerr << "Exception in iteration " << iter << ": " << e.what() << std::endl;
-        LOG_ERROR("Pipeline exception in iter " + std::to_string(iter) + ": " + e.what());
+    } catch (const std::invalid_argument& e) {
+        std::string msg = "Invalid argument to stod.";
+        cerr << msg << endl;
+        LOG_ERROR(msg);
+    }
+    catch (const std::out_of_range& e) {
+        std::string msg = "Out-of-range value in stod.";
+        cerr << msg << endl;
+        LOG_ERROR(msg);
+    }
+    catch (const std::exception& e) {
+        std::string msg = "Generic exception: " + std::string(e.what());
+        cerr << msg << endl;
+        LOG_ERROR(msg);
     }
 }
 
@@ -367,7 +377,7 @@ int main(int argc, char* argv[]) {
 
     // Configurable parameters
     uint64_t seed = 42;
-    size_t max_iterations = 1000000000;
+    size_t max_iterations = 10000000000;
     fs::path out_root = "fuzz_output";
     fs::path fail_dir = out_root / "failures";
     fs::path corpus_dir = out_root / "corpus";
