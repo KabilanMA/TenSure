@@ -140,3 +140,14 @@ endif()
 # Verbose build
 # ------------------------------
 set(CMAKE_VERBOSE_MAKEFILE ON)
+
+
+# ==== Auto-generated for module Sparsifier ====
+option(BUILD_SPARSIFIER "Build Sparsifier backend" OFF)
+if (BUILD_SPARSIFIER)
+    file(GLOB_RECURSE SPARSIFIER_SRC
+        ${CMAKE_SOURCE_DIR}/src/sparsifier_wrapper/*.cpp
+    )
+    add_library(sparsifier_wrapper SHARED ${SPARSIFIER_SRC})
+    target_include_directories(sparsifier_wrapper PUBLIC ${CMAKE_SOURCE_DIR}/include)
+endif()

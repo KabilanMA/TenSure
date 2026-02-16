@@ -43,7 +43,43 @@ string generate_program(const tsKernel &kernel_info, std::vector<fs::path> resul
             space += " ";
     }
     ostringstream oss;
-    oss << "#include <iostream>\n#include <fstream>\n#include <sstream>\n#include <vector>\n#include <string>\n#include <stdexcept>\n#include \"taco.h\"\n\nusing namespace taco;\n\nint read_taco_file(std::string file_name, Tensor<double>& T)\n{\n\tstd::ifstream file(file_name);\n\tif (!file.is_open()) {\n\t\tthrow std::runtime_error(\"Failed to open file: \" + file_name);\n\t}\n\n\t std::string line;\n\twhile (std::getline(file, line)) {\n\t\tif (line.empty() || line[0] == '#') continue;\n\n\t\tstd::istringstream iss(line);\n\t\tstd::vector<double> tokens;\n\t\tdouble tmp;\n\n\twhile (iss >> tmp) {\n\t\t\ttokens.push_back(tmp);\n\t\t}\n\n\t\tif (tokens.size() < 2) {\n\t\t\tthrow std::runtime_error(\"Malformed line: \" + line);\n\t\t}\n\n\t\tstd::vector<int> coord;\n\t\tcoord.reserve(tokens.size() - 1);\n\n\t\tfor (size_t i =0; i < tokens.size() -  1; i++) {\n\t\t\tcoord.push_back(static_cast<int>(tokens[i]));\n\t\t}\n\t\tT.insert(coord, tokens.back());\n\t}\n\treturn 0;\n}\n\nint main() {\n";
+    oss << "#include <iostream>\n" 
+        << "#include <fstream>\n"
+        << "#include <chrono>\n" 
+        << "#include <sstream>\n"
+        << "#include <vector>\n" 
+        << "#include <string>\n"
+        << "#include <stdexcept>\n" 
+        << "#include \"taco.h\"\n\n"
+        << "using namespace taco;\n\n"
+        << "int read_taco_file(std::string file_name, Tensor<double>& T)\n"
+            <<"{\n\t"
+            << "std::ifstream file(file_name);\n\t"
+            << "if (!file.is_open()) {\n\t\t"
+                << "throw std::runtime_error(\"Failed to open file: \" + file_name);\n\t"
+            << "}\n\n\t"
+            << "std::string line;\n\t"
+            << "while (std::getline(file, line)) {\n\t\t"
+                << "if (line.empty() || line[0] == '#') continue;\n\n\t\t"
+                << "std::istringstream iss(line);\n\t\t"
+                << "std::vector<double> tokens;\n\t\t"
+                << "double tmp;\n\n\t"
+                << "while (iss >> tmp) {\n\t\t\t"
+                    << "tokens.push_back(tmp);\n\t\t"
+                << "}\n\n\t\t"
+                << "if (tokens.size() < 2) {\n\t\t\t"
+                    << "throw std::runtime_error(\"Malformed line: \" + line);\n\t\t"
+                << "}\n\n\t\t"
+                << "std::vector<int> coord;\n\t\t"
+                << "coord.reserve(tokens.size() - 1);\n\n\t\t"
+                << "for (size_t i =0; i < tokens.size() -  1; i++) {\n\t\t\t"
+                    << "coord.push_back(static_cast<int>(tokens[i]));\n\t\t"
+                << "}\n\t\t"
+                << "T.insert(coord, tokens.back());\n\t"
+            << "}\n\t"
+            << "return 0;\n"
+        << "}\n\n"
+        << "int main() {\n";
     
     set<char> indexVar;
     vector<string> tensor_init = {};
@@ -68,10 +104,21 @@ string generate_program(const tsKernel &kernel_info, std::vector<fs::path> resul
     {
         oss << space << expression.expressions << ";\n\n";
     }
-
+    oss << space << "auto compile_start_time = std::chrono::high_resolution_clock::now();\n";
     oss << space << kernel_info.tensors[0].name << ".compile();\n";
     oss << space << kernel_info.tensors[0].name << ".assemble();\n";
+    oss << space << "auto compile_end_time = std::chrono::high_resolution_clock::now();\n";
     oss << space << kernel_info.tensors[0].name << ".compute();\n\n";
+    oss << space << "auto end_time = std::chrono::high_resolution_clock::now();\n";
+    oss << space << "std::chrono::duration<double, std::milli> compile_elapsed_ms = compile_end_time - compile_start_time;\n";
+    oss << space << "std::chrono::duration<double, std::milli> compute_elapsed_ms = end_time - compile_end_time;\n";
+
+    fs::path time_file = results_file[0];
+    time_file.replace_extension(".txt");
+    oss << space << "std::ofstream time_file(\"" << time_file.string() << "\");\n";
+    oss << space << "time_file << \"Compilation time: \" << compile_elapsed_ms.count() << \" ms\"\n\"\";\n";
+    oss << space << "time_file << \"Computation time: \" << compute_elapsed_ms.count() << \" ms\"\n\"\";\n";
+    oss << space << "time_file.close();\n";
 
     for (auto &results_file_path : results_file) {
         fs::path abs_results_file_path = std::filesystem::absolute(std::filesystem::current_path() / results_file_path);
